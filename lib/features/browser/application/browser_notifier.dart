@@ -1,0 +1,55 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../domain/browser_state.dart';
+
+final browserProvider =
+    NotifierProvider<BrowserNotifier, BrowserState>(BrowserNotifier.new);
+
+class BrowserNotifier extends Notifier<BrowserState> {
+  @override
+  BrowserState build() => const BrowserState();
+
+  /// Called on every URL change (including YouTube SPA `pushState`
+  /// navigations). Re-derives the watchable video id from the URL.
+  void onUrlChanged(String url) {
+    state = state.copyWith(
+      url: url,
+      currentVideoId: () => extractVideoId(url),
+    );
+  }
+
+  void setTitle(String title) => state = state.copyWith(title: title);
+
+  void setLoading(bool loading) => state = state.copyWith(isLoading: loading);
+
+  void setProgress(int progress) =>
+      state = state.copyWith(progress: progress / 100);
+
+  void setNavState({required bool canGoBack, required bool canGoForward}) =>
+      state = state.copyWith(canGoBack: canGoBack, canGoForward: canGoForward);
+
+  /// Extracts an 11-char YouTube video id from any of the URL shapes the
+  /// mobile site produces: `/watch?v=`, `youtu.be/`, `/shorts/`, `/embed/`.
+  static String? extractVideoId(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return null;
+
+    final v = uri.queryParameters['v'];
+    if (_isValidId(v)) return v;
+
+    final segments = uri.pathSegments;
+    if (segments.isNotEmpty) {
+      final last = segments.last;
+      if ((segments.contains('shorts') ||
+              segments.contains('embed') ||
+              uri.host.contains('youtu.be')) &&
+          _isValidId(last)) {
+        return last;
+      }
+    }
+    return null;
+  }
+
+  static bool _isValidId(String? id) =>
+      id != null && RegExp(r'^[A-Za-z0-9_-]{11}$').hasMatch(id);
+}

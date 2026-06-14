@@ -1,0 +1,74 @@
+name: tubedl
+description: "Micro-browser + YouTube video/audio downloader. Android-first."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.6.1
+
+  # Navigation
+  go_router: ^14.0.0
+
+  # Micro-browser
+  webview_flutter: ^4.10.0
+
+  # YouTube stream extraction
+  youtube_explode_dart: ^2.3.0
+
+  # Downloads (WorkManager-backed, survives background kill)
+  flutter_downloader: ^1.11.9
+
+  # Players
+  just_audio: ^0.9.41
+  video_player: ^2.9.1
+
+  # Persistence
+  sqflite: ^2.3.3
+  shared_preferences: ^2.3.0
+  path: ^1.9.0
+  path_provider: ^2.1.4
+
+  # Permissions / sharing
+  permission_handler: ^11.3.1
+  share_plus: ^13.1.0
+
+  # Images
+  cached_network_image: ^3.4.0
+
+  # Audio -> MP3 transcoding.
+  # Maintained fork (full-gpl, incl. libmp3lame); the original
+  # ffmpeg_kit_flutter_full_gpl had its native binaries removed in 2025.
+  ffmpeg_kit_flutter_new: ^4.2.1
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_lints: ^4.0.0
+  flutter_native_splash: ^2.4.1
+  flutter_launcher_icons: ^0.14.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/branding/
+
+flutter_native_splash:
+  color: "#121212"
+  image: assets/branding/splash.png
+  android_12:
+    color: "#121212"
+    image: assets/branding/splash.png
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/branding/icon.png"
+  adaptive_icon_background: "#121212"
+  adaptive_icon_foreground: "assets/branding/icon_foreground.png"
