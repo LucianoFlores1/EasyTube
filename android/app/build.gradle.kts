@@ -15,7 +15,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.tubedl"
+        applicationId = "com.tubedl.tubedl"
         // ffmpeg_kit_full_gpl requires API 24+.
         minSdk = 24
         targetSdk = 34
@@ -28,8 +28,11 @@ android {
         release {
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // R8 was stripping plugin registrant classes (FlutterDownloader et al.),
+            // causing MissingPluginException at startup. Disabled for reliable
+            // sideload builds; re-enable with verified keep rules for a Play release.
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

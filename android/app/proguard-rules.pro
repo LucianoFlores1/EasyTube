@@ -2,6 +2,9 @@
 -keep class io.flutter.** { *; }
 -dontwarn io.flutter.**
 
+# App entry Activity (referenced only from the manifest)
+-keep class com.tubedl.tubedl.MainActivity { *; }
+
 # flutter_downloader (WorkManager background isolate)
 -keep class vn.hunghd.flutterdownloader.** { *; }
 -keep class androidx.work.** { *; }

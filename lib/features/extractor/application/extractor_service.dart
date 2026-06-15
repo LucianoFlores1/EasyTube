@@ -24,13 +24,19 @@ class ExtractorService {
 
   Future<ExtractResult> getOptions(String videoId) async {
     try {
-      final video = await _yt.videos.get(videoId);
-      final manifest = await _yt.videos.streamsClient.getManifest(videoId);
+      // Fetch metadata and the stream manifest concurrently to cut latency.
+      final results = await Future.wait([
+        _yt.videos.get(videoId),
+        _yt.videos.streamsClient.getManifest(videoId),
+      ]);
+      final video = results[0] as Video;
+      final manifest = results[1] as StreamManifest;
 
+      final muxed = manifest.muxed.sortByVideoQuality();
       return ExtractResult(
         video: video,
-        videoOptions: _buildVideoOptions(manifest),
-        audioOptions: _buildAudioOptions(manifest),
+        videoOptions: _buildVideoOptions(muxed),
+        audioOptions: _buildAudioOptions(muxed),
       );
     } on VideoRequiresPurchaseException {
       throw const VideoUnavailableFailure('Este video requiere compra.');
@@ -45,17 +51,14 @@ class ExtractorService {
     }
   }
 
-  List<StreamOption> _buildVideoOptions(StreamManifest manifest) {
-    // Muxed streams carry both audio and video, so no merge step is needed.
-    final muxed = manifest.muxed.sortByVideoQuality();
+  List<StreamOption> _buildVideoOptions(List<MuxedStreamInfo> muxed) {
     final seen = <String>{};
     final options = <StreamOption>[];
     for (final s in muxed) {
-      final label = s.qualityLabel;
-      if (!seen.add(label)) continue;
+      if (!seen.add(s.qualityLabel)) continue;
       options.add(
         StreamOption(
-          label: label,
+          label: s.qualityLabel,
           kind: MediaKind.video,
           container: s.container.name,
           streamInfo: s,
@@ -67,29 +70,26 @@ class ExtractorService {
     return options;
   }
 
-  List<StreamOption> _buildAudioOptions(StreamManifest manifest) {
-    final audios = manifest.audioOnly.sortByBitrate();
-    if (audios.isEmpty) return const [];
-    final best = audios.last; // highest bitrate
-    final kbps = best.bitrate.kiloBitsPerSecond.round();
+  /// Audio is extracted from the highest-quality muxed stream, so it downloads
+  /// reliably and carries the best available audio track.
+  List<StreamOption> _buildAudioOptions(List<MuxedStreamInfo> muxed) {
+    if (muxed.isEmpty) return const [];
+    final src = muxed.first; // highest quality muxed
 
     return [
       StreamOption(
-        label: 'M4A ${kbps}k',
+        label: 'M4A',
         kind: MediaKind.audio,
         container: 'm4a',
-        streamInfo: best,
-        bitrate: kbps,
-        sizeBytes: best.size.totalBytes,
+        streamInfo: src,
+        audioCodec: 'copy',
       ),
       StreamOption(
         label: 'MP3 320k',
         kind: MediaKind.audio,
         container: 'mp3',
-        streamInfo: best,
-        bitrate: 320,
-        sizeBytes: best.size.totalBytes,
-        convertToMp3: true,
+        streamInfo: src,
+        audioCodec: 'libmp3lame',
       ),
     ];
   }

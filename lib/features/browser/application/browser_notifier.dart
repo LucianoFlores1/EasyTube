@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 import '../domain/browser_state.dart';
 
@@ -6,6 +7,10 @@ final browserProvider =
     NotifierProvider<BrowserNotifier, BrowserState>(BrowserNotifier.new);
 
 class BrowserNotifier extends Notifier<BrowserState> {
+  /// Set by [BrowserPage] so the app shell can drive WebView history (e.g. the
+  /// Android back button) without owning the controller.
+  WebViewController? controller;
+
   @override
   BrowserState build() => const BrowserState();
 
@@ -22,8 +27,15 @@ class BrowserNotifier extends Notifier<BrowserState> {
 
   void setLoading(bool loading) => state = state.copyWith(isLoading: loading);
 
-  void setProgress(int progress) =>
-      state = state.copyWith(progress: progress / 100);
+  /// Throttled: only rebuild on coarse changes (every ~10%, plus 0 and 100) so
+  /// page loads don't trigger dozens of widget rebuilds.
+  void setProgress(int progress) {
+    final next = progress / 100;
+    final current = (state.progress * 100).round();
+    if (progress == 0 || progress == 100 || (progress - current).abs() >= 10) {
+      state = state.copyWith(progress: next);
+    }
+  }
 
   void setNavState({required bool canGoBack, required bool canGoForward}) =>
       state = state.copyWith(canGoBack: canGoBack, canGoForward: canGoForward);

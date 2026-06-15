@@ -58,6 +58,7 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
         ),
       )
       ..loadRequest(Uri.parse(AppConstants.youtubeHomeUrl));
+    ref.read(browserProvider.notifier).controller = _controller;
   }
 
   Future<void> _refreshChrome(String url) async {

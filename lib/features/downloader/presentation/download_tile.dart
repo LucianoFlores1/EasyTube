@@ -112,17 +112,10 @@ class _Actions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return switch (task.status) {
-      DownloadStatus.running => IconButton(
-          tooltip: 'Pausar',
-          icon: const Icon(Icons.pause),
-          onPressed: () => notifier.pause(task.id),
-        ),
-      DownloadStatus.paused => IconButton(
-          tooltip: 'Reanudar',
-          icon: const Icon(Icons.play_arrow),
-          onPressed: () => notifier.resume(task.id),
-        ),
-      DownloadStatus.failed || DownloadStatus.canceled => IconButton(
+      DownloadStatus.failed ||
+      DownloadStatus.canceled ||
+      DownloadStatus.paused =>
+        IconButton(
           tooltip: 'Reintentar',
           icon: const Icon(Icons.refresh),
           onPressed: () => notifier.retry(task.id),
@@ -132,6 +125,7 @@ class _Actions extends StatelessWidget {
           icon: const Icon(Icons.delete_outline),
           onPressed: () => notifier.remove(task.id),
         ),
+      DownloadStatus.running ||
       DownloadStatus.enqueued ||
       DownloadStatus.converting =>
         IconButton(

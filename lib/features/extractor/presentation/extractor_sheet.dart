@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/app_constants.dart';
-import '../../../core/errors/app_snackbar.dart';
 import '../../../shared/widgets/thumbnail_image.dart';
 import '../../downloader/application/downloader_notifier.dart';
 import '../../downloader/domain/download_request.dart';
@@ -23,26 +22,35 @@ class ExtractorSheet extends ConsumerStatefulWidget {
 class _ExtractorSheetState extends ConsumerState<ExtractorSheet> {
   StreamOption? _selected;
 
-  void _download(ExtractResult result) {
+  Future<void> _download(ExtractResult result) async {
     final option = _selected;
     if (option == null) return;
 
-    ref.read(downloaderProvider.notifier).enqueue(
-          DownloadRequest(
-            videoId: widget.videoId,
-            title: result.title,
-            author: result.author,
-            thumbnailUrl: result.thumbnailUrl,
-            url: option.url,
-            container: option.container,
-            isAudio: option.isAudio,
-            convertToMp3: option.convertToMp3,
-            quality: option.label,
-          ),
-        );
-
-    Navigator.of(context).pop();
-    AppSnackbar.showSuccess(context, 'Descarga agregada a la cola');
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    try {
+      await ref.read(downloaderProvider.notifier).enqueue(
+            DownloadRequest(
+              videoId: widget.videoId,
+              title: result.title,
+              author: result.author,
+              thumbnailUrl: result.thumbnailUrl,
+              streamInfo: option.streamInfo,
+              container: option.container,
+              isAudio: option.isAudio,
+              audioCodec: option.audioCodec,
+              quality: option.label,
+            ),
+          );
+      navigator.pop();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Descarga agregada a la cola')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Error al iniciar descarga: $e')),
+      );
+    }
   }
 
   @override
@@ -58,7 +66,7 @@ class _ExtractorSheetState extends ConsumerState<ExtractorSheet> {
         return Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           child: async.when(
-            loading: () => const _SheetLoading(),
+            loading: () => _SheetLoading(videoId: widget.videoId),
             error: (err, _) => _SheetError(
               error: err,
               onRetry: () =>
@@ -282,19 +290,27 @@ class _Grabber extends StatelessWidget {
 }
 
 class _SheetLoading extends StatelessWidget {
-  const _SheetLoading();
+  const _SheetLoading({required this.videoId});
+
+  final String videoId;
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _Grabber(),
-        SizedBox(height: 60),
-        CircularProgressIndicator(),
-        SizedBox(height: 16),
-        Text('Obteniendo formatos…'),
-        SizedBox(height: 60),
+        const _Grabber(),
+        const SizedBox(height: 8),
+        ThumbnailImage(
+          url: 'https://i.ytimg.com/vi/$videoId/hqdefault.jpg',
+          width: 200,
+          height: 112,
+        ),
+        const SizedBox(height: 28),
+        const CircularProgressIndicator(),
+        const SizedBox(height: 16),
+        const Text('Obteniendo formatos…'),
+        const SizedBox(height: 40),
       ],
     );
   }
