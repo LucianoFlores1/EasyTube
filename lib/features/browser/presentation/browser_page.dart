@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -139,7 +141,15 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
               )
             : null,
       ),
-      body: WebViewWidget(controller: _controller),
+      // Claim vertical drags so the page scrolls inside the horizontal
+      // PageView (tab swiper); horizontal drags still switch tabs.
+      body: WebViewWidget(
+        controller: _controller,
+        gestureRecognizers: const {
+          Factory<VerticalDragGestureRecognizer>(
+              VerticalDragGestureRecognizer.new),
+        },
+      ),
       floatingActionButton: DownloadFab(
         visible: state.hasVideo,
         onPressed: () =>
