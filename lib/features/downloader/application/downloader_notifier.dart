@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
+import '../../../shared/providers/youtube_explode_provider.dart';
 import '../../library/application/library_notifier.dart';
 import '../data/download_database.dart';
 import '../data/file_paths.dart';
@@ -22,12 +23,24 @@ const _userAgent =
     'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36';
 
-/// Per-task data kept in memory (not persisted): the muxed source stream and
-/// the FFmpeg audio codec, used to run and to retry within the session.
+const _maxConcurrent = 2; // ponytail: fixed gate; tune if throughput matters
+const _playlistCap = 50; // ponytail: cap huge playlists
+
+/// In-memory (not persisted) download job. [streamInfo] is null for playlist
+/// items, which resolve their muxed stream lazily in [_run].
 class _Job {
-  _Job(this.streamInfo, this.audioCodec);
-  final StreamInfo streamInfo;
+  _Job({
+    required this.videoId,
+    required this.wantAudio,
+    required this.audioCodec,
+    required this.quality,
+    this.streamInfo,
+  });
+  final String videoId;
+  final bool wantAudio;
   final String? audioCodec;
+  final String quality;
+  StreamInfo? streamInfo;
 }
 
 class DownloaderNotifier extends Notifier<List<DownloadTask>> {
@@ -35,6 +48,7 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
   final Map<String, StreamSubscription<List<int>>> _subs = {};
   final Map<String, HttpClient> _clients = {};
   final Map<String, _Job> _jobs = {};
+  final Set<String> _running = {};
   int _seq = 0;
 
   @override
@@ -54,7 +68,6 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
   Future<void> _init() async {
     _db = await DownloadDatabase.open();
     final restored = await _db!.getAll();
-    // Tasks left mid-flight by a previous run can't resume (in-memory job lost).
     state = [
       for (final t in restored)
         t.status.isActive ? t.copyWith(status: DownloadStatus.failed) : t,
@@ -62,46 +75,114 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
   }
 
   Future<void> enqueue(DownloadRequest req) async {
-    final db = _db ??= await DownloadDatabase.open();
-    final dir =
-        req.isAudio ? await FilePaths.audioDir() : await FilePaths.videosDir();
-    final base = FilePaths.sanitize('${req.title} [${req.quality}]');
-    final id = '${DateTime.now().millisecondsSinceEpoch}_${_seq++}';
-
-    final task = DownloadTask(
-      id: id,
+    await _addTask(
       videoId: req.videoId,
       title: req.title,
       author: req.author,
       thumbnailUrl: req.thumbnailUrl,
-      filePath: '${dir.path}/$base.${req.container}',
+      container: req.container,
+      isAudio: req.isAudio,
+      audioCodec: req.audioCodec,
+      quality: req.quality,
+      streamInfo: req.streamInfo,
+    );
+    _pump();
+  }
+
+  /// Enqueues every video of a playlist with one chosen format.
+  Future<void> enqueuePlaylist({
+    required String playlistId,
+    required bool isAudio,
+    required String container,
+    required String? audioCodec,
+    required String quality,
+  }) async {
+    final yt = ref.read(youtubeExplodeProvider);
+    final videos =
+        await yt.playlists.getVideos(playlistId).take(_playlistCap).toList();
+    for (final v in videos) {
+      await _addTask(
+        videoId: v.id.value,
+        title: v.title,
+        author: v.author,
+        thumbnailUrl: v.thumbnails.highResUrl,
+        container: container,
+        isAudio: isAudio,
+        audioCodec: audioCodec,
+        quality: quality,
+      );
+    }
+    _pump();
+  }
+
+  Future<void> _addTask({
+    required String videoId,
+    required String title,
+    required String author,
+    required String thumbnailUrl,
+    required String container,
+    required bool isAudio,
+    required String? audioCodec,
+    required String quality,
+    StreamInfo? streamInfo,
+  }) async {
+    final db = _db ??= await DownloadDatabase.open();
+    final dir = isAudio ? await FilePaths.audioDir() : await FilePaths.videosDir();
+    final base = FilePaths.sanitize('$title [$quality]');
+    final id = '${DateTime.now().millisecondsSinceEpoch}_${_seq++}';
+
+    final task = DownloadTask(
+      id: id,
+      videoId: videoId,
+      title: title,
+      author: author,
+      thumbnailUrl: thumbnailUrl,
+      filePath: '${dir.path}/$base.$container',
       status: DownloadStatus.enqueued,
       progress: 0,
       createdAt: DateTime.now(),
-      isAudio: req.isAudio,
+      isAudio: isAudio,
       convertToMp3: false,
-      quality: req.quality,
-      container: req.container,
+      quality: quality,
+      container: container,
     );
-    _jobs[id] = _Job(req.streamInfo, req.audioCodec);
+    _jobs[id] = _Job(
+      videoId: videoId,
+      wantAudio: isAudio,
+      audioCodec: audioCodec,
+      quality: quality,
+      streamInfo: streamInfo,
+    );
     await db.insert(task);
     state = [task, ...state];
-    unawaited(_run(task));
+  }
+
+  void _pump() {
+    for (final t in state) {
+      if (_running.length >= _maxConcurrent) break;
+      if (t.status == DownloadStatus.enqueued &&
+          !_running.contains(t.id) &&
+          _jobs.containsKey(t.id)) {
+        _running.add(t.id);
+        unawaited(_run(t));
+      }
+    }
   }
 
   Future<void> _run(DownloadTask task) async {
     final job = _jobs[task.id];
-    if (job == null) return;
-
-    // Audio is extracted from the muxed download, so fetch to a temp file.
-    final downloadPath =
-        task.isAudio ? '${task.filePath}.src' : task.filePath;
+    if (job == null) {
+      _running.remove(task.id);
+      return;
+    }
+    final downloadPath = task.isAudio ? '${task.filePath}.src' : task.filePath;
     final client = HttpClient();
     _clients[task.id] = client;
     IOSink? sink;
 
     try {
-      final request = await client.getUrl(job.streamInfo.url);
+      final streamInfo = job.streamInfo ?? await _resolveStream(job);
+      final request = await client.getUrl(streamInfo.url);
       request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
       final response = await request.close();
       if (response.statusCode != HttpStatus.ok &&
@@ -111,7 +192,7 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
 
       final total = response.contentLength > 0
           ? response.contentLength
-          : job.streamInfo.size.totalBytes;
+          : streamInfo.size.totalBytes;
       sink = File(downloadPath).openWrite();
       var received = 0;
       var lastPercent = -1;
@@ -122,7 +203,8 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
           sink!.add(chunk);
           received += chunk.length;
           final percent = total > 0 ? (received * 100 ~/ total) : 0;
-          if (percent != lastPercent) {
+          // ponytail: update every 5% to avoid rebuild spam / jank.
+          if (percent >= lastPercent + 5 || percent == 100) {
             lastPercent = percent;
             _patch(task.copyWith(
               status: DownloadStatus.running,
@@ -160,7 +242,22 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
       }
     } finally {
       _clients.remove(task.id)?.close(force: true);
+      _running.remove(task.id);
+      _pump();
     }
+  }
+
+  Future<StreamInfo> _resolveStream(_Job job) async {
+    final yt = ref.read(youtubeExplodeProvider);
+    final manifest = await yt.videos.streamsClient.getManifest(job.videoId);
+    final muxed = manifest.muxed.sortByVideoQuality();
+    if (muxed.isEmpty) throw const HttpException('Sin streams disponibles');
+    final info = job.wantAudio
+        ? muxed.first
+        : muxed.firstWhere((m) => m.qualityLabel == job.quality,
+            orElse: () => muxed.first);
+    job.streamInfo = info;
+    return info;
   }
 
   Future<void> _extractAudio(
@@ -190,23 +287,26 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
   Future<void> cancel(String id) async {
     await _subs.remove(id)?.cancel();
     _clients.remove(id)?.close(force: true);
+    _running.remove(id);
     final task = _byId(id);
     if (task != null) {
       _deleteFile(task.isAudio ? '${task.filePath}.src' : task.filePath);
       _patch(task.copyWith(status: DownloadStatus.canceled));
     }
+    _pump();
   }
 
   Future<void> retry(String id) async {
     final task = _byId(id);
     if (task == null || _jobs[id] == null) return;
     _patch(task.copyWith(status: DownloadStatus.enqueued, progress: 0));
-    unawaited(_run(task));
+    _pump();
   }
 
   Future<void> remove(String id) async {
     await _subs.remove(id)?.cancel();
     _clients.remove(id)?.close(force: true);
+    _running.remove(id);
     final task = _byId(id);
     if (task != null) {
       _deleteFile(task.filePath);
@@ -215,6 +315,7 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     _jobs.remove(id);
     await _db?.delete(id);
     state = state.where((t) => t.id != id).toList();
+    _pump();
   }
 
   Future<void> clearFinished() async {

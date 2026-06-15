@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/router/app_router.dart';
 import '../../../shared/widgets/thumbnail_image.dart';
+import '../../library/application/audio_player_notifier.dart';
+import '../../library/domain/media_item.dart';
 import '../application/downloader_notifier.dart';
 import '../domain/download_task.dart';
 
@@ -11,11 +15,30 @@ class DownloadTile extends ConsumerWidget {
 
   final DownloadTask task;
 
+  void _play(BuildContext context, WidgetRef ref) {
+    final item = MediaItem(
+      path: task.filePath,
+      title: task.title,
+      isAudio: task.isAudio,
+      sizeBytes: 0,
+      modified: task.createdAt,
+    );
+    if (task.isAudio) {
+      ref.read(currentAudioProvider.notifier).play(item);
+      context.push(Routes.audioPlayer, extra: item);
+    } else {
+      context.push(Routes.videoPlayer, extra: item);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final notifier = ref.read(downloaderProvider.notifier);
+    final canPlay = task.status == DownloadStatus.complete;
 
-    return Padding(
+    return InkWell(
+      onTap: canPlay ? () => _play(context, ref) : null,
+      child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,6 +85,7 @@ class DownloadTile extends ConsumerWidget {
           _Actions(task: task, notifier: notifier),
         ],
       ),
+      ),
     );
   }
 }
@@ -91,11 +115,20 @@ class _ProgressRow extends StatelessWidget {
         if (task.status.isActive || task.status == DownloadStatus.paused)
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: indeterminate ? null : task.progress / 100,
-              minHeight: 4,
-              backgroundColor: AppColors.surfaceVariant,
-            ),
+            child: indeterminate
+                ? const LinearProgressIndicator(
+                    minHeight: 4,
+                    backgroundColor: AppColors.surfaceVariant,
+                  )
+                : TweenAnimationBuilder<double>(
+                    tween: Tween(end: task.progress / 100),
+                    duration: const Duration(milliseconds: 300),
+                    builder: (_, value, __) => LinearProgressIndicator(
+                      value: value,
+                      minHeight: 4,
+                      backgroundColor: AppColors.surfaceVariant,
+                    ),
+                  ),
           ),
         const SizedBox(height: 4),
         Text(label, style: TextStyle(fontSize: 12, color: color)),

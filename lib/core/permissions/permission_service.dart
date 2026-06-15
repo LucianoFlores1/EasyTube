@@ -21,4 +21,12 @@ class PermissionService {
     ].request();
     return statuses.values.any((s) => s.isGranted);
   }
+
+  /// All-files access, so downloads can land in the public Download/ folder.
+  /// Best-effort: if denied, downloads fall back to app-scoped storage.
+  static Future<void> ensureStorage() async {
+    if (!await Permission.manageExternalStorage.isGranted) {
+      await Permission.manageExternalStorage.request();
+    }
+  }
 }

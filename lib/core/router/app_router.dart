@@ -28,9 +28,11 @@ final GoRouter appRouter = GoRouter(
   navigatorKey: _rootKey,
   initialLocation: Routes.browser,
   routes: [
-    StatefulShellRoute.indexedStack(
+    StatefulShellRoute(
       builder: (context, state, navigationShell) =>
           AppShell(navigationShell: navigationShell),
+      navigatorContainerBuilder: (context, navigationShell, children) =>
+          ShellPageView(navigationShell: navigationShell, children: children),
       branches: [
         StatefulShellBranch(
           navigatorKey: _shellKey,

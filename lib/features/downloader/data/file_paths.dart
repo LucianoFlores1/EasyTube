@@ -13,20 +13,25 @@ import '../../../core/errors/failure.dart';
 class FilePaths {
   FilePaths._();
 
-  static Future<Directory> _root() async {
-    final base = await getExternalStorageDirectory();
-    if (base == null) throw const StorageFailure();
-    return Directory('${base.path}/${AppConstants.rootFolder}');
-  }
-
   static Future<Directory> videosDir() => _ensure(AppConstants.videosFolder);
   static Future<Directory> audioDir() => _ensure(AppConstants.audioFolder);
 
+  /// Public `Download/TubeDL/<sub>` so files show up in the device's Downloads;
+  /// falls back to app-scoped storage if that isn't writable (no permission).
   static Future<Directory> _ensure(String sub) async {
-    final root = await _root();
-    final dir = Directory('${root.path}/$sub');
-    if (!await dir.exists()) await dir.create(recursive: true);
-    return dir;
+    final base = await getExternalStorageDirectory();
+    if (base == null) throw const StorageFailure();
+    final publicRoot = base.path.split('/Android/').first; // /storage/emulated/0
+    try {
+      final dir = Directory(
+          '$publicRoot/Download/${AppConstants.rootFolder}/$sub');
+      await dir.create(recursive: true);
+      return dir;
+    } catch (_) {
+      final dir = Directory('${base.path}/${AppConstants.rootFolder}/$sub');
+      await dir.create(recursive: true);
+      return dir;
+    }
   }
 
   /// Strips characters that are illegal in file names on Android/FAT.

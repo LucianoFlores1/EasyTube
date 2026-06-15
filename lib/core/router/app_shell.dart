@@ -77,3 +77,78 @@ class AppShell extends ConsumerWidget {
     );
   }
 }
+
+/// Swipeable container for the shell branches. Renders all branches in a
+/// [PageView] (kept alive so the WebView never reloads) and keeps the
+/// PageView, the bottom nav and go_router's branch index in sync.
+class ShellPageView extends StatefulWidget {
+  const ShellPageView({
+    required this.navigationShell,
+    required this.children,
+    super.key,
+  });
+
+  final StatefulNavigationShell navigationShell;
+  final List<Widget> children;
+
+  @override
+  State<ShellPageView> createState() => _ShellPageViewState();
+}
+
+class _ShellPageViewState extends State<ShellPageView> {
+  late final PageController _controller =
+      PageController(initialPage: widget.navigationShell.currentIndex);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final index = widget.navigationShell.currentIndex;
+    // Sync PageView when the index changed via a tab tap.
+    if (_controller.hasClients && _controller.page?.round() != index) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_controller.hasClients) {
+          _controller.animateToPage(
+            index,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOutCubic,
+          );
+        }
+      });
+    }
+    return PageView(
+      controller: _controller,
+      onPageChanged: (i) => widget.navigationShell.goBranch(
+        i,
+        initialLocation: i == widget.navigationShell.currentIndex,
+      ),
+      children: [
+        for (final child in widget.children) _KeepAlive(child: child),
+      ],
+    );
+  }
+}
+
+class _KeepAlive extends StatefulWidget {
+  const _KeepAlive({required this.child});
+  final Widget child;
+
+  @override
+  State<_KeepAlive> createState() => _KeepAliveState();
+}
+
+class _KeepAliveState extends State<_KeepAlive>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
+}

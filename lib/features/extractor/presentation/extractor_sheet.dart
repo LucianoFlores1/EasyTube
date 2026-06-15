@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/permissions/permission_service.dart';
 import '../../../shared/widgets/thumbnail_image.dart';
 import '../../downloader/application/downloader_notifier.dart';
 import '../../downloader/domain/download_request.dart';
@@ -11,9 +12,10 @@ import '../domain/stream_option.dart';
 
 /// Bottom sheet that lists the real video/audio download options for a video.
 class ExtractorSheet extends ConsumerStatefulWidget {
-  const ExtractorSheet({required this.videoId, super.key});
+  const ExtractorSheet({required this.videoId, this.playlistId, super.key});
 
   final String videoId;
+  final String? playlistId;
 
   @override
   ConsumerState<ExtractorSheet> createState() => _ExtractorSheetState();
@@ -29,6 +31,7 @@ class _ExtractorSheetState extends ConsumerState<ExtractorSheet> {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     try {
+      await PermissionService.ensureStorage();
       await ref.read(downloaderProvider.notifier).enqueue(
             DownloadRequest(
               videoId: widget.videoId,
@@ -53,6 +56,31 @@ class _ExtractorSheetState extends ConsumerState<ExtractorSheet> {
     }
   }
 
+  Future<void> _downloadPlaylist() async {
+    final option = _selected;
+    final playlistId = widget.playlistId;
+    if (option == null || playlistId == null) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    try {
+      await PermissionService.ensureStorage();
+      await ref.read(downloaderProvider.notifier).enqueuePlaylist(
+            playlistId: playlistId,
+            isAudio: option.isAudio,
+            container: option.container,
+            audioCodec: option.audioCodec,
+            quality: option.label,
+          );
+      navigator.pop();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Lista completa agregada a la cola')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Error con la lista: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(extractOptionsProvider(widget.videoId));
@@ -65,19 +93,27 @@ class _ExtractorSheetState extends ConsumerState<ExtractorSheet> {
       builder: (context, scrollController) {
         return Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: async.when(
-            loading: () => _SheetLoading(videoId: widget.videoId),
-            error: (err, _) => _SheetError(
-              error: err,
-              onRetry: () =>
-                  ref.invalidate(extractOptionsProvider(widget.videoId)),
-            ),
-            data: (result) => _SheetContent(
-              result: result,
-              selected: _selected,
-              scrollController: scrollController,
-              onSelect: (o) => setState(() => _selected = o),
-              onDownload: () => _download(result),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            child: async.when(
+              loading: () =>
+                  _SheetLoading(key: const ValueKey('l'), videoId: widget.videoId),
+              error: (err, _) => _SheetError(
+                key: const ValueKey('e'),
+                error: err,
+                onRetry: () =>
+                    ref.invalidate(extractOptionsProvider(widget.videoId)),
+              ),
+              data: (result) => _SheetContent(
+                key: const ValueKey('d'),
+                result: result,
+                selected: _selected,
+                scrollController: scrollController,
+                hasPlaylist: widget.playlistId != null,
+                onSelect: (o) => setState(() => _selected = o),
+                onDownload: () => _download(result),
+                onDownloadPlaylist: _downloadPlaylist,
+              ),
             ),
           ),
         );
@@ -91,15 +127,20 @@ class _SheetContent extends StatelessWidget {
     required this.result,
     required this.selected,
     required this.scrollController,
+    required this.hasPlaylist,
     required this.onSelect,
     required this.onDownload,
+    required this.onDownloadPlaylist,
+    super.key,
   });
 
   final ExtractResult result;
   final StreamOption? selected;
   final ScrollController scrollController;
+  final bool hasPlaylist;
   final ValueChanged<StreamOption> onSelect;
   final VoidCallback onDownload;
+  final VoidCallback onDownloadPlaylist;
 
   @override
   Widget build(BuildContext context) {
@@ -147,6 +188,17 @@ class _SheetContent extends StatelessWidget {
             minimumSize: const Size.fromHeight(48),
           ),
         ),
+        if (hasPlaylist) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: selected == null ? null : onDownloadPlaylist,
+            icon: const Icon(Icons.playlist_add_check),
+            label: const Text('Descargar lista completa'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -290,7 +342,7 @@ class _Grabber extends StatelessWidget {
 }
 
 class _SheetLoading extends StatelessWidget {
-  const _SheetLoading({required this.videoId});
+  const _SheetLoading({required this.videoId, super.key});
 
   final String videoId;
 
@@ -317,7 +369,7 @@ class _SheetLoading extends StatelessWidget {
 }
 
 class _SheetError extends StatelessWidget {
-  const _SheetError({required this.error, required this.onRetry});
+  const _SheetError({required this.error, required this.onRetry, super.key});
   final Object error;
   final VoidCallback onRetry;
 

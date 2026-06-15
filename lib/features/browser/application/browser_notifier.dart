@@ -20,7 +20,16 @@ class BrowserNotifier extends Notifier<BrowserState> {
     state = state.copyWith(
       url: url,
       currentVideoId: () => extractVideoId(url),
+      playlistId: () => extractPlaylistId(url),
     );
+  }
+
+  /// A real, downloadable playlist id. Excludes auto-generated radio mixes
+  /// (`RD...`) which are effectively infinite.
+  static String? extractPlaylistId(String url) {
+    final id = Uri.tryParse(url)?.queryParameters['list'];
+    if (id == null || id.isEmpty || id.startsWith('RD')) return null;
+    return id;
   }
 
   void setTitle(String title) => state = state.copyWith(title: title);

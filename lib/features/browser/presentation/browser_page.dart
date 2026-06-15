@@ -87,11 +87,11 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
     _controller.loadRequest(Uri.parse(input));
   }
 
-  void _openExtractor(String videoId) {
+  void _openExtractor(String videoId, String? playlistId) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => ExtractorSheet(videoId: videoId),
+      builder: (_) => ExtractorSheet(videoId: videoId, playlistId: playlistId),
     );
   }
 
@@ -142,7 +142,8 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
       body: WebViewWidget(controller: _controller),
       floatingActionButton: DownloadFab(
         visible: state.hasVideo,
-        onPressed: () => _openExtractor(state.currentVideoId!),
+        onPressed: () =>
+            _openExtractor(state.currentVideoId!, state.playlistId),
       ),
     );
   }

@@ -6,6 +6,7 @@ class BrowserState {
     this.isLoading = false,
     this.progress = 0,
     this.currentVideoId,
+    this.playlistId,
     this.canGoBack = false,
     this.canGoForward = false,
   });
@@ -17,10 +18,14 @@ class BrowserState {
 
   /// Non-null when the current page is a watchable YouTube video.
   final String? currentVideoId;
+
+  /// Non-null when the current page belongs to a real (non-radio) playlist.
+  final String? playlistId;
   final bool canGoBack;
   final bool canGoForward;
 
   bool get hasVideo => currentVideoId != null && currentVideoId!.isNotEmpty;
+  bool get hasPlaylist => playlistId != null && playlistId!.isNotEmpty;
 
   BrowserState copyWith({
     String? url,
@@ -28,6 +33,7 @@ class BrowserState {
     bool? isLoading,
     double? progress,
     String? Function()? currentVideoId,
+    String? Function()? playlistId,
     bool? canGoBack,
     bool? canGoForward,
   }) {
@@ -38,6 +44,7 @@ class BrowserState {
       progress: progress ?? this.progress,
       currentVideoId:
           currentVideoId != null ? currentVideoId() : this.currentVideoId,
+      playlistId: playlistId != null ? playlistId() : this.playlistId,
       canGoBack: canGoBack ?? this.canGoBack,
       canGoForward: canGoForward ?? this.canGoForward,
     );
