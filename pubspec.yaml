@@ -42,10 +42,9 @@ dependencies:
   # Images
   cached_network_image: ^3.4.0
 
-  # Audio -> MP3 transcoding.
-  # Maintained fork (full-gpl, incl. libmp3lame); the original
-  # ffmpeg_kit_flutter_full_gpl had its native binaries removed in 2025.
-  ffmpeg_kit_flutter_new: ^4.2.1
+  # Audio extraction/transcoding only (m4a copy, mp3 via libmp3lame).
+  # Audio variant: includes lame, no video codecs -> much smaller APK.
+  ffmpeg_kit_flutter_new_audio: ^2.0.0
 
   cupertino_icons: ^1.0.8
 
