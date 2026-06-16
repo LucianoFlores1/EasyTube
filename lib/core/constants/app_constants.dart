@@ -4,13 +4,13 @@ import 'package:flutter/material.dart';
 class AppConstants {
   AppConstants._();
 
-  static const String appName = 'TubeDL';
+  static const String appName = 'EasyTube';
 
   /// Initial URL loaded in the micro-browser.
   static const String youtubeHomeUrl = 'https://m.youtube.com';
 
   /// Root folder name created inside external storage.
-  static const String rootFolder = 'TubeDL';
+  static const String rootFolder = 'EasyTube';
   static const String videosFolder = 'Videos';
   static const String audioFolder = 'Audio';
 
