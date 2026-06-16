@@ -31,10 +31,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         setState(() => _ready = true);
         _controller.play();
       });
-    _controller.addListener(_onTick);
   }
-
-  void _onTick() => setState(() {});
 
   void _togglePlay() {
     _controller.value.isPlaying ? _controller.pause() : _controller.play();
@@ -55,9 +52,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   @override
   void dispose() {
-    _controller
-      ..removeListener(_onTick)
-      ..dispose();
+    _controller.dispose();
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
@@ -114,60 +109,63 @@ class _Controls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final value = controller.value;
-    return Container(
-      color: Colors.black38,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const SizedBox(height: 8),
-          Expanded(
-            child: Center(
-              child: IconButton(
-                iconSize: 64,
-                color: Colors.white,
-                icon: Icon(
-                  value.isPlaying
-                      ? Icons.pause_circle_filled
-                      : Icons.play_circle_filled,
-                ),
-                onPressed: onTogglePlay,
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(
-              children: [
-                Text(
-                  _fmt(value.position),
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                ),
-                Expanded(
-                  child: VideoProgressIndicator(
-                    controller,
-                    allowScrubbing: true,
-                    colors: const VideoProgressColors(
-                      playedColor: AppColors.brandRed,
-                    ),
-                  ),
-                ),
-                Text(
-                  _fmt(value.duration),
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                ),
-                IconButton(
+    // Only this overlay rebuilds on playback ticks, not the whole page.
+    return ValueListenableBuilder<VideoPlayerValue>(
+      valueListenable: controller,
+      builder: (context, value, _) => Container(
+        color: Colors.black38,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const SizedBox(height: 8),
+            Expanded(
+              child: Center(
+                child: IconButton(
+                  iconSize: 64,
                   color: Colors.white,
                   icon: Icon(
-                    fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+                    value.isPlaying
+                        ? Icons.pause_circle_filled
+                        : Icons.play_circle_filled,
                   ),
-                  onPressed: onToggleFullscreen,
+                  onPressed: onTogglePlay,
                 ),
-              ],
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-        ],
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: [
+                  Text(
+                    _fmt(value.position),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                  Expanded(
+                    child: VideoProgressIndicator(
+                      controller,
+                      allowScrubbing: true,
+                      colors: const VideoProgressColors(
+                        playedColor: AppColors.brandRed,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    _fmt(value.duration),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                  IconButton(
+                    color: Colors.white,
+                    icon: Icon(
+                      fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+                    ),
+                    onPressed: onToggleFullscreen,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }

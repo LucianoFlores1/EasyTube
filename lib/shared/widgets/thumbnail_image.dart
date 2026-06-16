@@ -1,16 +1,13 @@
-import 'dart:io';
-
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/constants/app_constants.dart';
 
-/// Renders a thumbnail from a network URL or a local file path, with a
-/// consistent placeholder/error fallback.
+/// Network thumbnail with a consistent placeholder/error fallback. Async +
+/// cached, so it never blocks the UI thread while lists scroll.
 class ThumbnailImage extends StatelessWidget {
   const ThumbnailImage({
     this.url,
-    this.filePath,
     this.width,
     this.height,
     this.borderRadius = 8,
@@ -18,34 +15,22 @@ class ThumbnailImage extends StatelessWidget {
   });
 
   final String? url;
-  final String? filePath;
   final double? width;
   final double? height;
   final double borderRadius;
 
   @override
   Widget build(BuildContext context) {
-    final Widget image;
-    if (filePath != null && filePath!.isNotEmpty && File(filePath!).existsSync()) {
-      image = Image.file(
-        File(filePath!),
-        width: width,
-        height: height,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _fallback(),
-      );
-    } else if (url != null && url!.isNotEmpty) {
-      image = CachedNetworkImage(
-        imageUrl: url!,
-        width: width,
-        height: height,
-        fit: BoxFit.cover,
-        placeholder: (_, __) => _placeholder(),
-        errorWidget: (_, __, ___) => _fallback(),
-      );
-    } else {
-      image = _fallback();
-    }
+    final Widget image = (url != null && url!.isNotEmpty)
+        ? CachedNetworkImage(
+            imageUrl: url!,
+            width: width,
+            height: height,
+            fit: BoxFit.cover,
+            placeholder: (_, __) => _box(),
+            errorWidget: (_, __, ___) => _fallback(),
+          )
+        : _fallback();
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
@@ -53,7 +38,7 @@ class ThumbnailImage extends StatelessWidget {
     );
   }
 
-  Widget _placeholder() => Container(
+  Widget _box() => Container(
         width: width,
         height: height,
         color: AppColors.surfaceVariant,

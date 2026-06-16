@@ -188,10 +188,7 @@ class _MediaCard extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                ThumbnailImage(
-                  filePath: item.isAudio ? null : item.path,
-                  borderRadius: 12,
-                ),
+                const ThumbnailImage(borderRadius: 12),
                 Center(
                   child: Container(
                     width: 44,

@@ -48,7 +48,6 @@ class DownloadTile extends ConsumerWidget {
             children: [
               ThumbnailImage(
                 url: task.thumbnailUrl,
-                filePath: task.isAudio ? null : task.filePath,
                 width: 96,
                 height: 56,
               ),
