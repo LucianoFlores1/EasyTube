@@ -33,6 +33,11 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Build outputs / artifacts
+*.apk
+*.aab
+.flutter-plugins
+
 # Symbolication related
 app.*.symbols
 
