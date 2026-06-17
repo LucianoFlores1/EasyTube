@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/browser/application/browser_notifier.dart';
+import '../../features/extractor/presentation/extractor_sheet.dart';
 import '../../features/library/presentation/mini_player.dart';
+import '../../shared/providers/shared_url_provider.dart';
 
 /// Hosts the four primary tabs and the persistent audio mini-player.
 class AppShell extends ConsumerWidget {
@@ -22,6 +24,26 @@ class AppShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final canGoBackWeb = ref.watch(browserProvider.select((s) => s.canGoBack));
     final onBrowser = navigationShell.currentIndex == 0;
+
+    // A link shared into the app opens the download sheet directly.
+    ref.listen(sharedUrlProvider, (_, url) {
+      if (url == null) return;
+      ref.read(sharedUrlProvider.notifier).clear();
+      final link = RegExp(r'https?://\S+').firstMatch(url)?.group(0) ?? url;
+      final videoId = BrowserNotifier.extractVideoId(link);
+      if (videoId == null) return;
+      final playlistId = BrowserNotifier.extractPlaylistId(link);
+      navigationShell.goBranch(0);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) =>
+              ExtractorSheet(videoId: videoId, playlistId: playlistId),
+        );
+      });
+    });
 
     return PopScope(
       // Only let the OS pop (exit) when we're on the browser tab with no web

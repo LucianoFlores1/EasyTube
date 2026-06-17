@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/constants/app_constants.dart';
@@ -6,6 +7,7 @@ import 'core/permissions/permission_service.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'features/downloader/application/downloader_notifier.dart';
+import 'shared/providers/shared_url_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,6 +22,8 @@ class TubeDLApp extends ConsumerStatefulWidget {
 }
 
 class _TubeDLAppState extends ConsumerState<TubeDLApp> {
+  static const _shareChannel = MethodChannel('easytube/share');
+
   @override
   void initState() {
     super.initState();
@@ -29,6 +33,21 @@ class _TubeDLAppState extends ConsumerState<TubeDLApp> {
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => PermissionService.requestOnStartup(),
     );
+    _initShare();
+  }
+
+  void _initShare() {
+    _shareChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onShared') {
+        ref.read(sharedUrlProvider.notifier).set(call.arguments as String?);
+      }
+    });
+    // Cold start: pull the intent that launched the app, if it was a share.
+    _shareChannel.invokeMethod<String>('getSharedText').then((text) {
+      if (text != null && text.isNotEmpty) {
+        ref.read(sharedUrlProvider.notifier).set(text);
+      }
+    });
   }
 
   @override
