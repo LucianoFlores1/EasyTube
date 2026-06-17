@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -5,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../extractor/application/extractor_service.dart';
 import '../../extractor/presentation/extractor_sheet.dart';
 import '../application/browser_notifier.dart';
 import 'download_fab.dart';
@@ -19,6 +22,7 @@ class BrowserPage extends ConsumerStatefulWidget {
 class _BrowserPageState extends ConsumerState<BrowserPage> {
   late final WebViewController _controller;
   late final TextEditingController _urlField;
+  Timer? _prefetchTimer;
 
   @override
   void initState() {
@@ -99,6 +103,7 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
 
   @override
   void dispose() {
+    _prefetchTimer?.cancel();
     _urlField.dispose();
     super.dispose();
   }
@@ -106,6 +111,17 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(browserProvider);
+
+    // Pre-warm the extractor once a video has been on screen ~1.2s, so the
+    // download sheet shows formats instantly. Debounced to avoid hammering
+    // YouTube while scrubbing through autoplay/radio.
+    ref.listen(browserProvider.select((s) => s.currentVideoId), (_, id) {
+      _prefetchTimer?.cancel();
+      if (id == null) return;
+      _prefetchTimer = Timer(const Duration(milliseconds: 1200), () {
+        ref.read(extractOptionsProvider(id));
+      });
+    });
 
     return Scaffold(
       appBar: AppBar(

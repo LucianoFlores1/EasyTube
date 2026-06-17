@@ -2,22 +2,19 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 enum MediaKind { video, audio }
 
-/// A single downloadable option presented in the extractor sheet.
-///
-/// All options download a *muxed* (progressive) stream, which YouTube serves
-/// over a plain HTTP GET. Audio options extract the audio track from that muxed
-/// stream with FFmpeg — this avoids the adaptive (DASH) audio-only streams that
-/// YouTube blocks/throttles for non-browser clients.
+/// A downloadable option. Video options pair a video-only stream with an
+/// audio-only stream (merged with FFmpeg) to allow native resolutions; audio
+/// options use the audio-only stream directly.
 class StreamOption {
   const StreamOption({
     required this.label,
     required this.kind,
     required this.container,
-    required this.streamInfo,
+    required this.audioStream,
+    this.videoStream,
+    this.audioFormat,
     this.height,
-    this.bitrate,
     this.sizeBytes,
-    this.audioCodec,
   });
 
   final String label;
@@ -26,16 +23,18 @@ class StreamOption {
   /// Final container shown to the user (`mp4`, `m4a`, `mp3`).
   final String container;
 
-  /// The muxed source stream fetched from YouTube.
-  final StreamInfo streamInfo;
+  /// AAC audio-only stream: the audio source for both audio downloads and the
+  /// merge step of video downloads.
+  final StreamInfo audioStream;
+
+  /// Video-only stream for video options; null for audio.
+  final StreamInfo? videoStream;
+
+  /// For audio options: `m4a` (save as-is) or `mp3` (transcode). Null for video.
+  final String? audioFormat;
 
   final int? height;
-  final int? bitrate;
   final int? sizeBytes;
-
-  /// FFmpeg audio codec for extraction: `copy` (m4a), `libmp3lame` (mp3), or
-  /// null for a plain video download (no transcode).
-  final String? audioCodec;
 
   bool get isAudio => kind == MediaKind.audio;
 

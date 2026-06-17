@@ -38,10 +38,11 @@ class _ExtractorSheetState extends ConsumerState<ExtractorSheet> {
               title: result.title,
               author: result.author,
               thumbnailUrl: result.thumbnailUrl,
-              streamInfo: option.streamInfo,
+              audioStream: option.audioStream,
+              videoStream: option.videoStream,
               container: option.container,
               isAudio: option.isAudio,
-              audioCodec: option.audioCodec,
+              audioFormat: option.audioFormat,
               quality: option.label,
             ),
           );
@@ -69,7 +70,7 @@ class _ExtractorSheetState extends ConsumerState<ExtractorSheet> {
             playlistId: playlistId,
             isAudio: option.isAudio,
             container: option.container,
-            audioCodec: option.audioCodec,
+            audioFormat: option.audioFormat,
             quality: option.label,
           );
       navigator.pop();

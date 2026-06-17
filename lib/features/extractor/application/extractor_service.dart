@@ -10,33 +10,65 @@ final extractorServiceProvider = Provider<ExtractorService>((ref) {
   return ExtractorService(ref.watch(youtubeExplodeProvider));
 });
 
-/// Fetches metadata + available streams for a video and shapes them into the
-/// options shown in the extractor sheet.
 final extractOptionsProvider =
     FutureProvider.family<ExtractResult, String>((ref, videoId) {
   return ref.watch(extractorServiceProvider).getOptions(videoId);
 });
+
+/// androidVr exposes every native resolution as video-only streams AND serves
+/// them (plus AAC audio-only) over a plain HTTP GET without throttling.
+const _client = YoutubeApiClient.androidVr;
 
 class ExtractorService {
   ExtractorService(this._yt);
 
   final YoutubeExplode _yt;
 
+  Future<StreamManifest> manifest(String videoId) =>
+      _yt.videos.streamsClient.getManifest(videoId, ytClients: [_client]);
+
   Future<ExtractResult> getOptions(String videoId) async {
     try {
-      // Fetch metadata and the stream manifest concurrently to cut latency.
       final results = await Future.wait([
         _yt.videos.get(videoId),
-        _yt.videos.streamsClient.getManifest(videoId),
+        manifest(videoId),
       ]);
       final video = results[0] as Video;
-      final manifest = results[1] as StreamManifest;
+      final m = results[1] as StreamManifest;
+      final audio = pickAudio(m);
 
-      final muxed = manifest.muxed.sortByVideoQuality();
       return ExtractResult(
         video: video,
-        videoOptions: _buildVideoOptions(muxed),
-        audioOptions: _buildAudioOptions(muxed),
+        videoOptions: [
+          for (final v in pickVideos(m))
+            StreamOption(
+              label: v.qualityLabel,
+              kind: MediaKind.video,
+              container: 'mp4',
+              videoStream: v,
+              audioStream: audio,
+              height: v.videoResolution.height,
+              sizeBytes: v.size.totalBytes + audio.size.totalBytes,
+            ),
+        ],
+        audioOptions: [
+          StreamOption(
+            label: 'M4A ${audio.bitrate.kiloBitsPerSecond.round()}k',
+            kind: MediaKind.audio,
+            container: 'm4a',
+            audioStream: audio,
+            audioFormat: 'm4a',
+            sizeBytes: audio.size.totalBytes,
+          ),
+          StreamOption(
+            label: 'MP3 320k',
+            kind: MediaKind.audio,
+            container: 'mp3',
+            audioStream: audio,
+            audioFormat: 'mp3',
+            sizeBytes: audio.size.totalBytes,
+          ),
+        ],
       );
     } on VideoRequiresPurchaseException {
       throw const VideoUnavailableFailure('Este video requiere compra.');
@@ -51,46 +83,37 @@ class ExtractorService {
     }
   }
 
-  List<StreamOption> _buildVideoOptions(List<MuxedStreamInfo> muxed) {
-    final seen = <String>{};
-    final options = <StreamOption>[];
-    for (final s in muxed) {
-      if (!seen.add(s.qualityLabel)) continue;
-      options.add(
-        StreamOption(
-          label: s.qualityLabel,
-          kind: MediaKind.video,
-          container: s.container.name,
-          streamInfo: s,
-          height: s.videoResolution.height,
-          sizeBytes: s.size.totalBytes,
-        ),
-      );
-    }
-    return options;
+  /// Highest-bitrate AAC (mp4) audio-only — downloads reliably (itag 139, the
+  /// lowest, is the one that throttles, and sorting by bitrate skips it).
+  StreamInfo pickAudio(StreamManifest m) {
+    final aac = m.audioOnly.where((a) => a.container.name == 'mp4').toList();
+    if (aac.isNotEmpty) return aac.sortByBitrate().last;
+    if (m.audioOnly.isNotEmpty) return m.audioOnly.sortByBitrate().last;
+    return m.muxed.first; // last resort
   }
 
-  /// Audio is extracted from the highest-quality muxed stream, so it downloads
-  /// reliably and carries the best available audio track.
-  List<StreamOption> _buildAudioOptions(List<MuxedStreamInfo> muxed) {
-    if (muxed.isEmpty) return const [];
-    final src = muxed.first; // highest quality muxed
+  /// One mp4 video-only stream per resolution (highest first), preferring H.264
+  /// for player compatibility.
+  List<VideoOnlyStreamInfo> pickVideos(StreamManifest m) {
+    final byHeight = <int, VideoOnlyStreamInfo>{};
+    for (final v in m.videoOnly.where((v) => v.container.name == 'mp4')) {
+      final h = v.videoResolution.height;
+      final cur = byHeight[h];
+      if (cur == null ||
+          (v.videoCodec.startsWith('avc') &&
+              !cur.videoCodec.startsWith('avc'))) {
+        byHeight[h] = v;
+      }
+    }
+    final list = byHeight.values.toList()
+      ..sort((a, b) => b.videoResolution.height.compareTo(a.videoResolution.height));
+    return list;
+  }
 
-    return [
-      StreamOption(
-        label: 'M4A',
-        kind: MediaKind.audio,
-        container: 'm4a',
-        streamInfo: src,
-        audioCodec: 'copy',
-      ),
-      StreamOption(
-        label: 'MP3 320k',
-        kind: MediaKind.audio,
-        container: 'mp3',
-        streamInfo: src,
-        audioCodec: 'libmp3lame',
-      ),
-    ];
+  VideoOnlyStreamInfo? pickVideoByQuality(StreamManifest m, String quality) {
+    final vids = pickVideos(m);
+    if (vids.isEmpty) return null;
+    return vids.firstWhere((v) => v.qualityLabel == quality,
+        orElse: () => vids.first);
   }
 }
