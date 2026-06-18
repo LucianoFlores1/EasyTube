@@ -83,12 +83,18 @@ class ExtractorService {
     }
   }
 
-  /// Highest-bitrate AAC (mp4) audio-only — downloads reliably (itag 139, the
-  /// lowest, is the one that throttles, and sorting by bitrate skips it).
+  /// Highest-bitrate AAC (mp4) audio-only. The lowest one (itag 139) throttles
+  /// / drops the connection, so we explicitly pick the max bitrate.
   StreamInfo pickAudio(StreamManifest m) {
     final aac = m.audioOnly.where((a) => a.container.name == 'mp4').toList();
-    if (aac.isNotEmpty) return aac.sortByBitrate().last;
-    if (m.audioOnly.isNotEmpty) return m.audioOnly.sortByBitrate().last;
+    if (aac.isNotEmpty) {
+      return aac.reduce(
+          (a, b) => a.bitrate.bitsPerSecond >= b.bitrate.bitsPerSecond ? a : b);
+    }
+    if (m.audioOnly.isNotEmpty) {
+      return m.audioOnly.reduce(
+          (a, b) => a.bitrate.bitsPerSecond >= b.bitrate.bitsPerSecond ? a : b);
+    }
     return m.muxed.first; // last resort
   }
 

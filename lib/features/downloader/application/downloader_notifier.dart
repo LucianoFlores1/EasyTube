@@ -23,8 +23,6 @@ final downloaderProvider =
 /// Last download failure message, surfaced as a snackbar by the Downloads page.
 final lastDownloadErrorProvider = StateProvider<String?>((ref) => null);
 
-const _userAgent = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
-    '(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36';
 const _maxConcurrent = 2;
 const _playlistCap = 50;
 
@@ -49,7 +47,7 @@ class _Job {
 class DownloaderNotifier extends Notifier<List<DownloadTask>> {
   DownloadDatabase? _db;
   final Map<String, StreamSubscription<List<int>>> _subs = {};
-  final Map<String, HttpClient> _clients = {};
+  final Map<String, Completer<void>> _completers = {};
   final Map<String, _Job> _jobs = {};
   final Set<String> _running = {};
   int _seq = 0;
@@ -60,9 +58,6 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     ref.onDispose(() {
       for (final s in _subs.values) {
         s.cancel();
-      }
-      for (final c in _clients.values) {
-        c.close(force: true);
       }
     });
     return const [];
@@ -201,7 +196,7 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
       }
     } finally {
       _subs.remove(task.id);
-      _clients.remove(task.id)?.close(force: true);
+      _completers.remove(task.id);
       _running.remove(task.id);
       _pump();
     }
@@ -251,32 +246,26 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     }
   }
 
+  /// Downloads via youtube_explode's chunked client, which fetches the stream
+  /// in small ranged segments. A single long GET gets throttled / dropped by
+  /// YouTube ("connection closed"); segmented requests stay fast.
   Future<void> _downloadTo(
     DownloadTask task,
     StreamInfo stream,
     String path, {
     required bool report,
   }) async {
-    final client = HttpClient();
-    _clients[task.id] = client;
+    final yt = ref.read(youtubeExplodeProvider);
+    final total = stream.size.totalBytes;
+    final sw = Stopwatch()..start();
     IOSink? sink;
     try {
-      final request = await client.getUrl(stream.url);
-      request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
-      final response = await request.close();
-      if (response.statusCode != HttpStatus.ok &&
-          response.statusCode != HttpStatus.partialContent) {
-        throw HttpException('HTTP ${response.statusCode}');
-      }
-      final total = response.contentLength > 0
-          ? response.contentLength
-          : stream.size.totalBytes;
       sink = File(path).openWrite();
       var received = 0;
       var lastPercent = -1;
       final completer = Completer<void>();
 
-      final sub = response.listen(
+      final sub = yt.videos.streamsClient.get(stream).listen(
         (chunk) {
           sink!.add(chunk);
           received += chunk.length;
@@ -291,29 +280,40 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
             }
           }
         },
-        onError: completer.completeError,
-        onDone: completer.complete,
+        onError: (Object e, StackTrace s) {
+          if (!completer.isCompleted) completer.completeError(e);
+        },
+        onDone: () {
+          if (!completer.isCompleted) completer.complete();
+        },
         cancelOnError: true,
       );
       _subs[task.id] = sub;
+      _completers[task.id] = completer;
       await completer.future;
       await sink.flush();
       await sink.close();
       sink = null;
+      final kbps = (received / 1024) / (sw.elapsedMilliseconds / 1000);
+      debugPrint('[TubeDL] done $received/$total bytes in '
+          '${sw.elapsedMilliseconds}ms (${kbps.toStringAsFixed(0)} KB/s)');
     } finally {
+      _completers.remove(task.id);
+      await _subs.remove(task.id)?.cancel();
       try {
         await sink?.close();
       } catch (_) {}
-      _clients.remove(task.id)?.close(force: true);
     }
   }
 
   Future<void> cancel(String id) async {
     final task = _byId(id);
     if (task != null) _patch(task.copyWith(status: DownloadStatus.canceled));
-    // Closing the client errors the active download; _run's catch sees the
-    // canceled status and stops.
-    _clients[id]?.close(force: true);
+    final completer = _completers[id];
+    if (completer != null && !completer.isCompleted) {
+      completer.completeError(StateError('canceled'));
+    }
+    await _subs[id]?.cancel();
     if (task != null) _cleanupTemps(task);
   }
 
@@ -325,7 +325,11 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
   }
 
   Future<void> remove(String id) async {
-    _clients[id]?.close(force: true);
+    final completer = _completers[id];
+    if (completer != null && !completer.isCompleted) {
+      completer.completeError(StateError('removed'));
+    }
+    await _subs[id]?.cancel();
     final task = _byId(id);
     if (task != null) {
       _deleteFile(task.filePath);
