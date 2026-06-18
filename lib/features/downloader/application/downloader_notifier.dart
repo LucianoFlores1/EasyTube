@@ -20,6 +20,9 @@ final downloaderProvider =
   DownloaderNotifier.new,
 );
 
+/// Last download failure message, surfaced as a snackbar by the Downloads page.
+final lastDownloadErrorProvider = StateProvider<String?>((ref) => null);
+
 const _userAgent = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36';
 const _maxConcurrent = 2;
@@ -193,6 +196,8 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
       if (_byId(task.id)?.status != DownloadStatus.canceled) {
         _deleteFile(task.filePath);
         _patch(task.copyWith(status: DownloadStatus.failed));
+        ref.read(lastDownloadErrorProvider.notifier).state =
+            e.toString().replaceFirst('Exception: ', '');
       }
     } finally {
       _subs.remove(task.id);

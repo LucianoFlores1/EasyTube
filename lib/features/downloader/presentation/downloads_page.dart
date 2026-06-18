@@ -15,6 +15,17 @@ class DownloadsPage extends ConsumerWidget {
     final tasks = ref.watch(downloaderProvider);
     final hasFinished = tasks.any((t) => !t.status.isActive);
 
+    ref.listen(lastDownloadErrorProvider, (_, msg) {
+      if (msg == null) return;
+      ref.read(lastDownloadErrorProvider.notifier).state = null;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          content: Text('Falló: $msg', maxLines: 4),
+          duration: const Duration(seconds: 8),
+        ));
+    });
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Descargas'),
