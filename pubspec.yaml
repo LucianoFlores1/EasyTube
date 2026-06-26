@@ -47,6 +47,8 @@ dependencies:
   ffmpeg_kit_flutter_new_audio: ^2.0.0
 
   cupertino_icons: ^1.0.8
+  flutter_foreground_task: ^9.2.2
+  webview_flutter_android: ^4.13.0
 
 dev_dependencies:
   flutter_lints: ^4.0.0

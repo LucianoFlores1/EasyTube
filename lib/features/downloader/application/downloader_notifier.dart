@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:ffmpeg_kit_flutter_new_audio/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_audio/return_code.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
@@ -50,6 +51,7 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
   final Map<String, Completer<void>> _completers = {};
   final Map<String, _Job> _jobs = {};
   final Set<String> _running = {};
+  bool _serviceOn = false;
   int _seq = 0;
 
   @override
@@ -86,6 +88,7 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
       audioStream: req.audioStream,
     );
     _pump();
+    unawaited(_syncNotification());
   }
 
   Future<void> enqueuePlaylist({
@@ -111,6 +114,7 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
       );
     }
     _pump();
+    unawaited(_syncNotification());
   }
 
   Future<void> _addTask({
@@ -340,6 +344,7 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     await _db?.delete(id);
     state = state.where((t) => t.id != id).toList();
     _pump();
+    unawaited(_syncNotification());
   }
 
   Future<void> clearFinished() async {
@@ -369,6 +374,43 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
       for (final t in state) if (t.id == task.id) task else t,
     ];
     _db?.update(task);
+    unawaited(_syncNotification());
+  }
+
+  /// Keeps the foreground service + progress notification in sync with the
+  /// active downloads. The service keeps downloads running while minimized.
+  Future<void> _syncNotification() async {
+    final active = state.where((t) => t.status.isActive).toList();
+    if (active.isEmpty) {
+      if (_serviceOn) {
+        _serviceOn = false;
+        await FlutterForegroundTask.stopService();
+      }
+      return;
+    }
+    final first = active.first;
+    final detail = switch (first.status) {
+      DownloadStatus.converting => 'procesando…',
+      DownloadStatus.enqueued => 'en cola…',
+      _ => '${first.progress}%',
+    };
+    final title =
+        active.length == 1 ? 'Descargando' : 'Descargando (${active.length})';
+    final text = '${first.title} · $detail';
+    if (_serviceOn) {
+      await FlutterForegroundTask.updateService(
+        notificationTitle: title,
+        notificationText: text,
+      );
+    } else {
+      _serviceOn = true;
+      await FlutterForegroundTask.startService(
+        serviceId: 256,
+        serviceTypes: const [ForegroundServiceTypes.dataSync],
+        notificationTitle: title,
+        notificationText: text,
+      );
+    }
   }
 
   void _deleteFile(String path) {

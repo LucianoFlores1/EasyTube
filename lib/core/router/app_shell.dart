@@ -25,6 +25,11 @@ class AppShell extends ConsumerWidget {
     final canGoBackWeb = ref.watch(browserProvider.select((s) => s.canGoBack));
     final onBrowser = navigationShell.currentIndex == 0;
 
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final notifier = ref.read(browserActiveProvider.notifier);
+      if (notifier.state != onBrowser) notifier.state = onBrowser;
+    });
+
     // A link shared into the app opens the download sheet directly.
     ref.listen(sharedUrlProvider, (_, url) {
       if (url == null) return;

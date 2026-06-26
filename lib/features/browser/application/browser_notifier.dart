@@ -6,6 +6,10 @@ import '../domain/browser_state.dart';
 final browserProvider =
     NotifierProvider<BrowserNotifier, BrowserState>(BrowserNotifier.new);
 
+/// Whether the browser tab is the visible one. The shell updates it; the
+/// browser pauses media when it turns false.
+final browserActiveProvider = StateProvider<bool>((ref) => true);
+
 class BrowserNotifier extends Notifier<BrowserState> {
   /// Set by [BrowserPage] so the app shell can drive WebView history (e.g. the
   /// Android back button) without owning the controller.

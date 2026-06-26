@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../extractor/application/extractor_service.dart';
@@ -19,7 +20,8 @@ class BrowserPage extends ConsumerStatefulWidget {
   ConsumerState<BrowserPage> createState() => _BrowserPageState();
 }
 
-class _BrowserPageState extends ConsumerState<BrowserPage> {
+class _BrowserPageState extends ConsumerState<BrowserPage>
+    with WidgetsBindingObserver {
   late final WebViewController _controller;
   late final TextEditingController _urlField;
   Timer? _prefetchTimer;
@@ -65,6 +67,24 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
       )
       ..loadRequest(Uri.parse(AppConstants.youtubeHomeUrl));
     ref.read(browserProvider.notifier).controller = _controller;
+
+    // Battery: block YouTube autoplay; pause media when the app or tab leaves.
+    final platform = _controller.platform;
+    if (platform is AndroidWebViewController) {
+      platform.setMediaPlaybackRequiresUserGesture(true);
+    }
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  void _pauseMedia() {
+    _controller.runJavaScript(
+      "document.querySelectorAll('video,audio').forEach((m)=>m.pause());",
+    ).catchError((_) {});
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) _pauseMedia();
   }
 
   Future<void> _refreshChrome(String url) async {
@@ -103,6 +123,7 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _prefetchTimer?.cancel();
     _urlField.dispose();
     super.dispose();
@@ -121,6 +142,11 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
       _prefetchTimer = Timer(const Duration(milliseconds: 1200), () {
         ref.read(extractOptionsProvider(id));
       });
+    });
+
+    // Pause playback when the user swipes away from the browser tab.
+    ref.listen(browserActiveProvider, (_, active) {
+      if (!active) _pauseMedia();
     });
 
     return Scaffold(
