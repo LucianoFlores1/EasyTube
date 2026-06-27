@@ -91,7 +91,8 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     unawaited(_syncNotification());
   }
 
-  Future<void> enqueuePlaylist({
+  /// Returns how many videos were enqueued.
+  Future<int> enqueuePlaylist({
     required String playlistId,
     required bool isAudio,
     required String container,
@@ -115,6 +116,7 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     }
     _pump();
     unawaited(_syncNotification());
+    return videos.length;
   }
 
   Future<void> _addTask({

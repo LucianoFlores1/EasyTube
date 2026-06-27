@@ -66,16 +66,23 @@ class _ExtractorSheetState extends ConsumerState<ExtractorSheet> {
     final navigator = Navigator.of(context);
     try {
       await PermissionService.ensureStorage();
-      await ref.read(downloaderProvider.notifier).enqueuePlaylist(
+      final count = await ref.read(downloaderProvider.notifier).enqueuePlaylist(
             playlistId: playlistId,
             isAudio: option.isAudio,
             container: option.container,
             audioFormat: option.audioFormat,
             quality: option.label,
           );
+      if (count == 0) {
+        messenger.showSnackBar(const SnackBar(
+          content: Text(
+              'No se encontraron videos en la lista (¿es privada o un Mix?).'),
+        ));
+        return;
+      }
       navigator.pop();
       messenger.showSnackBar(
-        const SnackBar(content: Text('Lista completa agregada a la cola')),
+        SnackBar(content: Text('$count videos agregados a la cola')),
       );
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('Error con la lista: $e')));
