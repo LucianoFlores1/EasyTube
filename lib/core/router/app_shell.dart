@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/browser/application/browser_notifier.dart';
 import '../../features/extractor/presentation/extractor_sheet.dart';
 import '../../features/library/presentation/mini_player.dart';
 import '../../shared/providers/shared_url_provider.dart';
+import '../../shared/youtube_ids.dart';
 
 /// Hosts the four primary tabs and the persistent audio mini-player.
 class AppShell extends ConsumerWidget {
@@ -22,22 +22,16 @@ class AppShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final canGoBackWeb = ref.watch(browserProvider.select((s) => s.canGoBack));
-    final onBrowser = navigationShell.currentIndex == 0;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final notifier = ref.read(browserActiveProvider.notifier);
-      if (notifier.state != onBrowser) notifier.state = onBrowser;
-    });
+    final onFirstTab = navigationShell.currentIndex == 0;
 
     // A link shared into the app opens the download sheet directly.
     ref.listen(sharedUrlProvider, (_, url) {
       if (url == null) return;
       ref.read(sharedUrlProvider.notifier).clear();
       final link = RegExp(r'https?://\S+').firstMatch(url)?.group(0) ?? url;
-      final videoId = BrowserNotifier.extractVideoId(link);
+      final videoId = YoutubeIds.videoId(link);
       if (videoId == null) return;
-      final playlistId = BrowserNotifier.extractPlaylistId(link);
+      final playlistId = YoutubeIds.playlistId(link);
       navigationShell.goBranch(0);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!context.mounted) return;
@@ -51,16 +45,10 @@ class AppShell extends ConsumerWidget {
     });
 
     return PopScope(
-      // Only let the OS pop (exit) when we're on the browser tab with no web
-      // history left; otherwise we handle back ourselves.
-      canPop: onBrowser && !canGoBackWeb,
+      // Back exits only from the first tab; otherwise jump back to it.
+      canPop: onFirstTab,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        if (!onBrowser) {
-          navigationShell.goBranch(0);
-        } else if (canGoBackWeb) {
-          ref.read(browserProvider.notifier).controller?.goBack();
-        }
+        if (!didPop && !onFirstTab) navigationShell.goBranch(0);
       },
       child: _buildScaffold(),
     );
@@ -78,9 +66,9 @@ class AppShell extends ConsumerWidget {
             onDestinationSelected: _onTap,
             destinations: const [
               NavigationDestination(
-                icon: Icon(Icons.public_outlined),
-                selectedIcon: Icon(Icons.public),
-                label: 'Explorar',
+                icon: Icon(Icons.search_outlined),
+                selectedIcon: Icon(Icons.search),
+                label: 'Buscar',
               ),
               NavigationDestination(
                 icon: Icon(Icons.download_outlined),

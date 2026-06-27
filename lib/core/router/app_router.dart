@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/browser/presentation/browser_page.dart';
 import '../../features/downloader/presentation/downloads_page.dart';
 import '../../features/library/domain/media_item.dart';
 import '../../features/library/presentation/audio_player_page.dart';
 import '../../features/library/presentation/library_page.dart';
 import '../../features/library/presentation/video_player_page.dart';
+import '../../features/search/presentation/search_page.dart';
 import '../../features/settings/presentation/settings_page.dart';
 import 'app_shell.dart';
 
@@ -39,7 +39,7 @@ final GoRouter appRouter = GoRouter(
           routes: [
             GoRoute(
               path: Routes.browser,
-              builder: (context, state) => const BrowserPage(),
+              builder: (context, state) => const SearchPage(),
             ),
           ],
         ),
