@@ -13,6 +13,7 @@ import '../../extractor/application/extractor_service.dart';
 import '../../library/application/library_notifier.dart';
 import '../data/download_database.dart';
 import '../data/file_paths.dart';
+import '../data/playlist_resolver.dart';
 import '../domain/download_request.dart';
 import '../domain/download_task.dart';
 
@@ -99,15 +100,14 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     required String? audioFormat,
     required String quality,
   }) async {
-    final yt = ref.read(youtubeExplodeProvider);
     final videos =
-        await yt.playlists.getVideos(playlistId).take(_playlistCap).toList();
+        await PlaylistResolver.getVideos(playlistId, limit: _playlistCap);
     for (final v in videos) {
       await _addTask(
-        videoId: v.id.value,
-        title: v.title,
-        author: v.author,
-        thumbnailUrl: v.thumbnails.highResUrl,
+        videoId: v.id,
+        title: v.title.isEmpty ? v.id : v.title,
+        author: '',
+        thumbnailUrl: 'https://i.ytimg.com/vi/${v.id}/hqdefault.jpg',
         container: container,
         isAudio: isAudio,
         audioFormat: audioFormat,
