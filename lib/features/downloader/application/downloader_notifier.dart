@@ -134,7 +134,7 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     final db = _db ??= await DownloadDatabase.open();
     final dir =
         isAudio ? await FilePaths.audioDir() : await FilePaths.videosDir();
-    final base = FilePaths.sanitize('$title [$quality]');
+    final base = FilePaths.sanitize(FilePaths.cleanTitle(title));
     final id = '${DateTime.now().millisecondsSinceEpoch}_${_seq++}';
 
     final task = DownloadTask(
@@ -219,16 +219,16 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
   }
 
   Future<void> _runAudio(DownloadTask task, _Job job) async {
-    if (job.audioFormat == 'mp3') {
-      final src = '${task.filePath}.src';
-      await _downloadTo(task, job.audioStream!, src, report: true);
-      _patch(task.copyWith(status: DownloadStatus.converting));
-      await _ffmpeg('-y -i "$src" -vn -c:a libmp3lame -b:a 320k "${task.filePath}"');
-      _deleteFile(src);
-    } else {
-      // m4a: the AAC audio-only stream is already an .m4a — save directly.
-      await _downloadTo(task, job.audioStream!, task.filePath, report: true);
-    }
+    final src = '${task.filePath}.src';
+    await _downloadTo(task, job.audioStream!, src, report: true);
+    _patch(task.copyWith(status: DownloadStatus.converting));
+    final cover = await _prepareCover(task);
+    final codec = job.audioFormat == 'mp3'
+        ? '-c:a libmp3lame -b:a 320k -id3v2_version 3'
+        : '-c:a copy';
+    await _transcodeWithCover('-i "$src"', codec, cover, _metaArgs(task),
+        task.filePath);
+    _deleteFile(src);
   }
 
   Future<void> _runVideo(DownloadTask task, _Job job) async {
@@ -237,9 +237,9 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     await _downloadTo(task, job.videoStream!, vtmp, report: true);
     _patch(task.copyWith(status: DownloadStatus.converting));
     await _downloadTo(task, job.audioStream!, atmp, report: false);
-    await _ffmpeg(
-      '-y -i "$vtmp" -i "$atmp" -map 0:v:0 -map 1:a:0 -c copy "${task.filePath}"',
-    );
+    await _prepareCover(task); // sidecar thumbnail for the library grid
+    await _ffmpeg('-y -i "$vtmp" -i "$atmp" -map 0:v:0 -map 1:a:0 -c copy '
+        '${_metaArgs(task)} "${task.filePath}"');
     _deleteFile(vtmp);
     _deleteFile(atmp);
   }
@@ -249,6 +249,59 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     final rc = await session.getReturnCode();
     if (!ReturnCode.isSuccess(rc)) {
       throw Exception('ffmpeg rc=$rc ${(await session.getAllLogsAsString()) ?? ''}');
+    }
+  }
+
+  /// Transcodes/remuxes audio, embedding [cover] as attached cover art when
+  /// available. Falls back to no-cover if the embed fails, so a thumbnail
+  /// problem never breaks the download.
+  Future<void> _transcodeWithCover(
+    String input,
+    String codec,
+    String? cover,
+    String meta,
+    String output,
+  ) async {
+    if (cover != null) {
+      try {
+        await _ffmpeg('-y $input -i "$cover" -map 0:a:0 -map 1:0 $codec '
+            '-c:v copy -disposition:v:0 attached_pic $meta "$output"');
+        return;
+      } catch (e) {
+        debugPrint('[TubeDL] cover embed failed, retrying plain: $e');
+      }
+    }
+    await _ffmpeg('-y $input -vn $codec $meta "$output"');
+  }
+
+  String _metaArgs(DownloadTask task) {
+    final t = task.title.replaceAll('"', '');
+    final a = task.author.replaceAll('"', '');
+    final b = StringBuffer('-metadata title="$t"');
+    if (a.isNotEmpty) b.write(' -metadata artist="$a"');
+    return b.toString();
+  }
+
+  /// Downloads the video thumbnail into the app-private thumbs folder, named by
+  /// the file's base name so the library can find it. Returns its path (also
+  /// used as the FFmpeg cover source), or null on failure.
+  Future<String?> _prepareCover(DownloadTask task) async {
+    try {
+      final dir = await FilePaths.thumbsDir();
+      final path = '${dir.path}/${FilePaths.baseName(task.filePath)}.jpg';
+      final client = HttpClient();
+      try {
+        final req = await client.getUrl(Uri.parse(
+            'https://i.ytimg.com/vi/${task.videoId}/hqdefault.jpg'));
+        final resp = await req.close();
+        if (resp.statusCode != 200) return null;
+        await resp.pipe(File(path).openWrite());
+        return path;
+      } finally {
+        client.close();
+      }
+    } catch (_) {
+      return null;
     }
   }
 

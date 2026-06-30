@@ -28,15 +28,17 @@ class LibraryNotifier extends AsyncNotifier<LibraryData> {
   Future<LibraryData> _scan() async {
     final videosDir = await FilePaths.videosDir();
     final audioDir = await FilePaths.audioDir();
+    final thumbsDir = await FilePaths.thumbsDir();
     return LibraryData(
-      videos: await _scanDir(videosDir, _videoExt, isAudio: false),
-      audio: await _scanDir(audioDir, _audioExt, isAudio: true),
+      videos: await _scanDir(videosDir, _videoExt, thumbsDir, isAudio: false),
+      audio: await _scanDir(audioDir, _audioExt, thumbsDir, isAudio: true),
     );
   }
 
   Future<List<MediaItem>> _scanDir(
     Directory dir,
-    Set<String> extensions, {
+    Set<String> extensions,
+    Directory thumbsDir, {
     required bool isAudio,
   }) async {
     if (!await dir.exists()) return const [];
@@ -46,6 +48,7 @@ class LibraryNotifier extends AsyncNotifier<LibraryData> {
       final ext = _extension(entity.path);
       if (!extensions.contains(ext)) continue;
       final stat = await entity.stat();
+      final thumb = '${thumbsDir.path}/${FilePaths.baseName(entity.path)}.jpg';
       items.add(
         MediaItem(
           path: entity.path,
@@ -53,6 +56,7 @@ class LibraryNotifier extends AsyncNotifier<LibraryData> {
           isAudio: isAudio,
           sizeBytes: stat.size,
           modified: stat.modified,
+          thumbnailPath: File(thumb).existsSync() ? thumb : null,
         ),
       );
     }

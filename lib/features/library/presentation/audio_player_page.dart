@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
@@ -5,6 +7,18 @@ import 'package:just_audio/just_audio.dart';
 import '../../../core/constants/app_constants.dart';
 import '../application/audio_player_notifier.dart';
 import '../domain/media_item.dart';
+
+class _ArtFallback extends StatelessWidget {
+  const _ArtFallback();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 220,
+        height: 220,
+        color: AppColors.surfaceVariant,
+        child: const Icon(Icons.music_note, size: 96, color: AppColors.brandRed),
+      );
+}
 
 class AudioPlayerPage extends ConsumerStatefulWidget {
   const AudioPlayerPage({required this.item, super.key});
@@ -38,14 +52,17 @@ class _AudioPlayerPageState extends ConsumerState<AudioPlayerPage> {
         child: Column(
           children: [
             const Spacer(),
-            Container(
-              width: 220,
-              height: 220,
-              decoration: BoxDecoration(
-                color: AppColors.surfaceVariant,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Icon(Icons.music_note, size: 96, color: AppColors.brandRed),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: current.thumbnailPath != null
+                  ? Image.file(
+                      File(current.thumbnailPath!),
+                      width: 220,
+                      height: 220,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const _ArtFallback(),
+                    )
+                  : const _ArtFallback(),
             ),
             const SizedBox(height: 32),
             Text(

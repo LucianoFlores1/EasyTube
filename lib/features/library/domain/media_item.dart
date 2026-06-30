@@ -8,6 +8,7 @@ class MediaItem {
     required this.isAudio,
     required this.sizeBytes,
     required this.modified,
+    this.thumbnailPath,
   });
 
   final String path;
@@ -15,6 +16,9 @@ class MediaItem {
   final bool isAudio;
   final int sizeBytes;
   final DateTime modified;
+
+  /// Local cover thumbnail (cached at download time), if any.
+  final String? thumbnailPath;
 
   String get fileName => path.split(Platform.pathSeparator).last;
 
