@@ -178,6 +178,7 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     final dir =
         isAudio ? await FilePaths.audioDir() : await FilePaths.videosDir();
     final base = FilePaths.sanitize(FilePaths.cleanTitle(title));
+    final filePath = _uniquePath(dir.path, base, container);
     final id = '${DateTime.now().millisecondsSinceEpoch}_${_seq++}';
 
     final task = DownloadTask(
@@ -186,7 +187,7 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
       title: title,
       author: author,
       thumbnailUrl: thumbnailUrl,
-      filePath: '${dir.path}/$base.$container',
+      filePath: filePath,
       status: DownloadStatus.enqueued,
       progress: 0,
       createdAt: DateTime.now(),
@@ -207,6 +208,18 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     );
     await db.insert(task);
     state = [task, ...state];
+  }
+
+  /// Avoids overwriting a different song with the same name (two "In The End"s)
+  /// by appending " (2)", " (3)"... — for the file and its cover sidecar.
+  String _uniquePath(String dir, String base, String ext) {
+    final claimed = {for (final t in state) t.filePath};
+    var candidate = '$dir/$base.$ext';
+    var n = 1;
+    while (claimed.contains(candidate) || File(candidate).existsSync()) {
+      candidate = '$dir/$base (${++n}).$ext';
+    }
+    return candidate;
   }
 
   void _pump() {
