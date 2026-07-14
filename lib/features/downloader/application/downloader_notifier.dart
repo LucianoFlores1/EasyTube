@@ -11,11 +11,14 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../../../shared/providers/youtube_explode_provider.dart';
 import '../../extractor/application/extractor_service.dart';
 import '../../library/application/library_notifier.dart';
+import '../../spotify/domain/spotify_track.dart';
 import '../data/download_database.dart';
 import '../data/file_paths.dart';
+import '../data/metadata_enricher.dart';
 import '../data/playlist_resolver.dart';
 import '../domain/download_request.dart';
 import '../domain/download_task.dart';
+import '../domain/track_meta.dart';
 
 final downloaderProvider =
     NotifierProvider<DownloaderNotifier, List<DownloadTask>>(
@@ -35,15 +38,26 @@ class _Job {
     required this.isAudio,
     required this.audioFormat,
     required this.quality,
+    this.searchQuery,
+    this.enrich = false,
     this.videoStream,
     this.audioStream,
   });
-  final String videoId;
+
+  /// Resolved lazily via [searchQuery] when empty (Spotify import).
+  String videoId;
   final bool isAudio;
   final String? audioFormat; // 'm4a' | 'mp3' (audio only)
   final String quality;
+
+  /// "artist title" to find the YouTube video for a Spotify track.
+  final String? searchQuery;
+
+  /// Look up rich metadata (album/genre/cover) via iTunes for this download.
+  final bool enrich;
   StreamInfo? videoStream;
   StreamInfo? audioStream;
+  TrackMeta? meta;
 }
 
 class DownloaderNotifier extends Notifier<List<DownloadTask>> {
@@ -119,6 +133,33 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     return videos.length;
   }
 
+  /// Enqueues Spotify tracks: each resolves its YouTube video by search and is
+  /// enriched with iTunes metadata (album/genre/cover) at download time.
+  Future<int> enqueueSpotify(
+    List<SpotifyTrack> tracks, {
+    required String container,
+    required String? audioFormat,
+    required String quality,
+  }) async {
+    for (final t in tracks) {
+      await _addTask(
+        videoId: '',
+        title: t.title,
+        author: t.artist,
+        thumbnailUrl: '',
+        container: container,
+        isAudio: true,
+        audioFormat: audioFormat,
+        quality: quality,
+        searchQuery: '${t.artist} ${t.title}'.trim(),
+        enrich: true,
+      );
+    }
+    _pump();
+    unawaited(_syncNotification());
+    return tracks.length;
+  }
+
   Future<void> _addTask({
     required String videoId,
     required String title,
@@ -128,6 +169,8 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     required bool isAudio,
     required String? audioFormat,
     required String quality,
+    String? searchQuery,
+    bool enrich = false,
     StreamInfo? videoStream,
     StreamInfo? audioStream,
   }) async {
@@ -157,6 +200,8 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
       isAudio: isAudio,
       audioFormat: audioFormat,
       quality: quality,
+      searchQuery: searchQuery,
+      enrich: enrich,
       videoStream: videoStream,
       audioStream: audioStream,
     );
@@ -184,6 +229,9 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     }
     try {
       await _resolveIfNeeded(job);
+      if (job.enrich && task.isAudio) {
+        job.meta = await MetadataEnricher.enrich(task.title, task.author);
+      }
       if (task.isAudio) {
         await _runAudio(task, job);
       } else {
@@ -210,6 +258,18 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
 
   Future<void> _resolveIfNeeded(_Job job) async {
     if (job.audioStream != null) return;
+    // Spotify tracks arrive without a videoId — find it by searching.
+    if (job.videoId.isEmpty && job.searchQuery != null) {
+      final results = await ref
+          .read(youtubeExplodeProvider)
+          .search
+          .searchContent(job.searchQuery!, filter: TypeFilters.video);
+      final videos = results.whereType<SearchVideo>().toList();
+      if (videos.isEmpty) {
+        throw Exception('Sin resultados para "${job.searchQuery}"');
+      }
+      job.videoId = videos.first.id.value;
+    }
     final svc = ref.read(extractorServiceProvider);
     final m = await svc.manifest(job.videoId);
     job.audioStream = svc.pickAudio(m);
@@ -222,12 +282,12 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     final src = '${task.filePath}.src';
     await _downloadTo(task, job.audioStream!, src, report: true);
     _patch(task.copyWith(status: DownloadStatus.converting));
-    final cover = await _prepareCover(task);
+    final cover = await _prepareCover(task, coverUrl: job.meta?.coverUrl);
     final codec = job.audioFormat == 'mp3'
         ? '-c:a libmp3lame -b:a 320k -id3v2_version 3'
         : '-c:a copy';
-    await _transcodeWithCover('-i "$src"', codec, cover, _metaArgs(task),
-        task.filePath);
+    await _transcodeWithCover(
+        '-i "$src"', codec, cover, _metaArgs(task, job.meta), task.filePath);
     _deleteFile(src);
   }
 
@@ -239,7 +299,7 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     await _downloadTo(task, job.audioStream!, atmp, report: false);
     await _prepareCover(task); // sidecar thumbnail for the library grid
     await _ffmpeg('-y -i "$vtmp" -i "$atmp" -map 0:v:0 -map 1:a:0 -c copy '
-        '${_metaArgs(task)} "${task.filePath}"');
+        '${_metaArgs(task, job.meta)} "${task.filePath}"');
     _deleteFile(vtmp);
     _deleteFile(atmp);
   }
@@ -274,25 +334,40 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     await _ffmpeg('-y $input -vn $codec $meta "$output"');
   }
 
-  String _metaArgs(DownloadTask task) {
-    final t = task.title.replaceAll('"', '');
-    final a = task.author.replaceAll('"', '');
-    final b = StringBuffer('-metadata title="$t"');
-    if (a.isNotEmpty) b.write(' -metadata artist="$a"');
+  String _metaArgs(DownloadTask task, TrackMeta? meta) {
+    final artist =
+        (meta != null && meta.artist.isNotEmpty) ? meta.artist : task.author;
+    final b = StringBuffer('-metadata title="${_q(task.title)}"');
+    if (artist.isNotEmpty) b.write(' -metadata artist="${_q(artist)}"');
+    if (meta != null) {
+      if (meta.album.isNotEmpty) {
+        b.write(' -metadata album="${_q(meta.album)}"'
+            ' -metadata album_artist="${_q(artist)}"');
+      }
+      if (meta.genre.isNotEmpty) b.write(' -metadata genre="${_q(meta.genre)}"');
+      if (meta.year != null) b.write(' -metadata date="${meta.year}"');
+      if (meta.trackNumber != null) {
+        b.write(' -metadata track="${meta.trackNumber}"');
+      }
+    }
     return b.toString();
   }
+
+  String _q(String s) => s.replaceAll('"', '');
 
   /// Downloads the video thumbnail into the app-private thumbs folder, named by
   /// the file's base name so the library can find it. Returns its path (also
   /// used as the FFmpeg cover source), or null on failure.
-  Future<String?> _prepareCover(DownloadTask task) async {
+  Future<String?> _prepareCover(DownloadTask task, {String? coverUrl}) async {
     try {
+      final url = (coverUrl != null && coverUrl.isNotEmpty)
+          ? coverUrl
+          : 'https://i.ytimg.com/vi/${task.videoId}/hqdefault.jpg';
       final dir = await FilePaths.thumbsDir();
       final path = '${dir.path}/${FilePaths.baseName(task.filePath)}.jpg';
       final client = HttpClient();
       try {
-        final req = await client.getUrl(Uri.parse(
-            'https://i.ytimg.com/vi/${task.videoId}/hqdefault.jpg'));
+        final req = await client.getUrl(Uri.parse(url));
         final resp = await req.close();
         if (resp.statusCode != 200) return null;
         await resp.pipe(File(path).openWrite());

@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/extractor/presentation/extractor_sheet.dart';
 import '../../features/library/presentation/mini_player.dart';
+import '../../features/spotify/data/spotify_resolver.dart';
+import '../../features/spotify/presentation/spotify_import_page.dart';
 import '../../shared/providers/shared_url_provider.dart';
 import '../../shared/youtube_ids.dart';
 
@@ -29,6 +31,19 @@ class AppShell extends ConsumerWidget {
       if (url == null) return;
       ref.read(sharedUrlProvider.notifier).clear();
       final link = RegExp(r'https?://\S+').firstMatch(url)?.group(0) ?? url;
+
+      // Spotify link -> import flow.
+      if (SpotifyResolver.isSpotifyUrl(link)) {
+        navigationShell.goBranch(0);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          Navigator.of(context, rootNavigator: true).push(
+            MaterialPageRoute(builder: (_) => SpotifyImportPage(url: link)),
+          );
+        });
+        return;
+      }
+
       final videoId = YoutubeIds.videoId(link);
       if (videoId == null) return;
       final playlistId = YoutubeIds.playlistId(link);

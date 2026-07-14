@@ -6,6 +6,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/thumbnail_image.dart';
 import '../../extractor/presentation/extractor_sheet.dart';
+import '../../spotify/presentation/spotify_import_page.dart';
 import '../application/search_providers.dart';
 import 'playlist_page.dart';
 
@@ -35,6 +36,34 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   void dispose() {
     _field.dispose();
     super.dispose();
+  }
+
+  Future<void> _importSpotify() async {
+    final controller = TextEditingController();
+    final url = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Importar de Spotify'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration:
+              const InputDecoration(hintText: 'Pegá el link de la playlist'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+              child: const Text('Importar')),
+        ],
+      ),
+    );
+    if (url == null || url.isEmpty || !mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => SpotifyImportPage(url: url)),
+    );
   }
 
   @override
@@ -75,6 +104,13 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               ),
             ),
           ),
+          actions: [
+            IconButton(
+              tooltip: 'Importar de Spotify',
+              icon: const Icon(Icons.playlist_add),
+              onPressed: _importSpotify,
+            ),
+          ],
           bottom: const TabBar(
             indicatorColor: AppColors.brandRed,
             tabs: [Tab(text: 'Videos'), Tab(text: 'Listas')],
