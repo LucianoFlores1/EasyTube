@@ -5,8 +5,11 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/thumbnail_image.dart';
+import '../../../shared/youtube_ids.dart';
 import '../../extractor/presentation/extractor_sheet.dart';
+import '../../spotify/data/spotify_resolver.dart';
 import '../../spotify/presentation/spotify_import_page.dart';
+import '../../ytmusic/presentation/music_import_page.dart';
 import '../application/search_providers.dart';
 import 'playlist_page.dart';
 
@@ -38,17 +41,18 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     super.dispose();
   }
 
-  Future<void> _importSpotify() async {
+  Future<void> _importList() async {
     final controller = TextEditingController();
     final url = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Importar de Spotify'),
+        title: const Text('Importar lista'),
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration:
-              const InputDecoration(hintText: 'Pegá el link de la playlist'),
+          decoration: const InputDecoration(
+            hintText: 'Link de Spotify o YouTube Music',
+          ),
         ),
         actions: [
           TextButton(
@@ -61,8 +65,25 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       ),
     );
     if (url == null || url.isEmpty || !mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => SpotifyImportPage(url: url)),
+
+    if (SpotifyResolver.isSpotifyUrl(url)) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => SpotifyImportPage(url: url)),
+      );
+      return;
+    }
+    final playlistId = YoutubeIds.playlistId(url);
+    if (YoutubeIds.isMusicUrl(url) && playlistId != null) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => MusicImportPage(playlistId: playlistId)),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Pegá un link de playlist/álbum de Spotify o '
+            'YouTube Music'),
+      ),
     );
   }
 
@@ -106,9 +127,9 @@ class _SearchPageState extends ConsumerState<SearchPage> {
           ),
           actions: [
             IconButton(
-              tooltip: 'Importar de Spotify',
+              tooltip: 'Importar lista (Spotify / YouTube Music)',
               icon: const Icon(Icons.playlist_add),
-              onPressed: _importSpotify,
+              onPressed: _importList,
             ),
           ],
           bottom: const TabBar(

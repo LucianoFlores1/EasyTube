@@ -6,6 +6,7 @@ import '../../features/extractor/presentation/extractor_sheet.dart';
 import '../../features/library/presentation/mini_player.dart';
 import '../../features/spotify/data/spotify_resolver.dart';
 import '../../features/spotify/presentation/spotify_import_page.dart';
+import '../../features/ytmusic/presentation/music_import_page.dart';
 import '../../shared/providers/shared_url_provider.dart';
 import '../../shared/youtube_ids.dart';
 
@@ -44,9 +45,23 @@ class AppShell extends ConsumerWidget {
         return;
       }
 
+      final playlistId = YoutubeIds.playlistId(link);
+
+      // A YouTube Music album/playlist -> music import flow (audio + metadata).
+      if (YoutubeIds.isMusicUrl(link) && playlistId != null) {
+        navigationShell.goBranch(0);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          Navigator.of(context, rootNavigator: true).push(
+            MaterialPageRoute(
+                builder: (_) => MusicImportPage(playlistId: playlistId)),
+          );
+        });
+        return;
+      }
+
       final videoId = YoutubeIds.videoId(link);
       if (videoId == null) return;
-      final playlistId = YoutubeIds.playlistId(link);
       navigationShell.goBranch(0);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!context.mounted) return;

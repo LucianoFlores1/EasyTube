@@ -14,10 +14,12 @@ import '../../library/application/library_notifier.dart';
 import '../../spotify/domain/spotify_track.dart';
 import '../data/download_database.dart';
 import '../data/file_paths.dart';
+import '../data/lyrics_service.dart';
 import '../data/metadata_enricher.dart';
 import '../data/playlist_resolver.dart';
 import '../domain/download_request.dart';
 import '../domain/download_task.dart';
+import '../domain/lyrics.dart';
 import '../domain/track_meta.dart';
 
 final downloaderProvider =
@@ -58,6 +60,7 @@ class _Job {
   StreamInfo? videoStream;
   StreamInfo? audioStream;
   TrackMeta? meta;
+  Lyrics? lyrics;
 }
 
 class DownloaderNotifier extends Notifier<List<DownloadTask>> {
@@ -120,12 +123,38 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
       await _addTask(
         videoId: v.id,
         title: v.title.isEmpty ? v.id : v.title,
-        author: '',
+        author: v.author,
         thumbnailUrl: 'https://i.ytimg.com/vi/${v.id}/hqdefault.jpg',
         container: container,
         isAudio: isAudio,
         audioFormat: audioFormat,
         quality: quality,
+      );
+    }
+    _pump();
+    unawaited(_syncNotification());
+    return videos.length;
+  }
+
+  /// Enqueues a YouTube Music album/playlist. Its titles and artist come clean
+  /// from YouTube, so each track is enriched (iTunes) and gets lyrics.
+  Future<int> enqueueMusic(
+    List<PlaylistVideo> videos, {
+    required String container,
+    required String? audioFormat,
+    required String quality,
+  }) async {
+    for (final v in videos) {
+      await _addTask(
+        videoId: v.id,
+        title: v.title.isEmpty ? v.id : v.title,
+        author: v.author,
+        thumbnailUrl: 'https://i.ytimg.com/vi/${v.id}/hqdefault.jpg',
+        container: container,
+        isAudio: true,
+        audioFormat: audioFormat,
+        quality: quality,
+        enrich: true,
       );
     }
     _pump();
@@ -242,10 +271,15 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     }
     try {
       await _resolveIfNeeded(job);
-      if (job.enrich && task.isAudio) {
-        job.meta = await MetadataEnricher.enrich(task.title, task.author);
-      }
       if (task.isAudio) {
+        if (job.enrich) {
+          job.meta = await MetadataEnricher.enrich(task.title, task.author);
+        }
+        // iTunes gives a cleaner artist than the channel name when we have it.
+        job.lyrics = await LyricsService.fetch(
+          job.meta?.artist ?? task.author,
+          FilePaths.cleanTitle(task.title),
+        );
         await _runAudio(task, job);
       } else {
         await _runVideo(task, job);
@@ -297,11 +331,12 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     _patch(task.copyWith(status: DownloadStatus.converting));
     final cover = await _prepareCover(task, coverUrl: job.meta?.coverUrl);
     final codec = job.audioFormat == 'mp3'
-        ? '-c:a libmp3lame -b:a 320k -id3v2_version 3'
-        : '-c:a copy';
-    await _transcodeWithCover(
-        '-i "$src"', codec, cover, _metaArgs(task, job.meta), task.filePath);
+        ? const ['-c:a', 'libmp3lame', '-b:a', '320k', '-id3v2_version', '3']
+        : const ['-c:a', 'copy'];
+    await _transcodeWithCover(src, codec, cover,
+        _metaArgs(task, job.meta, job.lyrics), task.filePath);
     _deleteFile(src);
+    await _writeLrc(task, job.lyrics);
   }
 
   Future<void> _runVideo(DownloadTask task, _Job job) async {
@@ -311,14 +346,19 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     _patch(task.copyWith(status: DownloadStatus.converting));
     await _downloadTo(task, job.audioStream!, atmp, report: false);
     await _prepareCover(task); // sidecar thumbnail for the library grid
-    await _ffmpeg('-y -i "$vtmp" -i "$atmp" -map 0:v:0 -map 1:a:0 -c copy '
-        '${_metaArgs(task, job.meta)} "${task.filePath}"');
+    await _ffmpeg([
+      '-y', '-i', vtmp, '-i', atmp, ..._cleanSlate,
+      '-map', '0:v:0', '-map', '1:a:0', '-c', 'copy',
+      ..._metaArgs(task, job.meta, null), task.filePath,
+    ]);
     _deleteFile(vtmp);
     _deleteFile(atmp);
   }
 
-  Future<void> _ffmpeg(String args) async {
-    final session = await FFmpegKit.execute(args);
+  /// Args go as a list, never a command string: lyrics carry newlines and
+  /// titles carry quotes, both of which break FFmpeg's command parser.
+  Future<void> _ffmpeg(List<String> args) async {
+    final session = await FFmpegKit.executeWithArguments(args);
     final rc = await session.getReturnCode();
     if (!ReturnCode.isSuccess(rc)) {
       throw Exception('ffmpeg rc=$rc ${(await session.getAllLogsAsString()) ?? ''}');
@@ -330,43 +370,71 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
   /// problem never breaks the download.
   Future<void> _transcodeWithCover(
     String input,
-    String codec,
+    List<String> codec,
     String? cover,
-    String meta,
+    List<String> meta,
     String output,
   ) async {
     if (cover != null) {
       try {
-        await _ffmpeg('-y $input -i "$cover" -map 0:a:0 -map 1:0 $codec '
-            '-c:v copy -disposition:v:0 attached_pic $meta "$output"');
+        await _ffmpeg([
+          '-y', '-i', input, '-i', cover, ..._cleanSlate,
+          '-map', '0:a:0', '-map', '1:0',
+          ...codec, '-c:v', 'copy', '-disposition:v:0', 'attached_pic',
+          ...meta, output,
+        ]);
         return;
       } catch (e) {
-        debugPrint('[TubeDL] cover embed failed, retrying plain: $e');
+        debugPrint('[EasyTube] cover embed failed, retrying plain: $e');
       }
     }
-    await _ffmpeg('-y $input -vn $codec $meta "$output"');
+    await _ffmpeg(
+        ['-y', '-i', input, ..._cleanSlate, '-vn', ...codec, ...meta, output]);
   }
 
-  String _metaArgs(DownloadTask task, TrackMeta? meta) {
+  /// Drops the source container's metadata, otherwise YouTube's own tags
+  /// (major_brand, compatible_brands...) leak into the song's tags.
+  static const _cleanSlate = ['-map_metadata', '-1'];
+
+  List<String> _metaArgs(DownloadTask task, TrackMeta? meta, Lyrics? lyrics) {
     final artist =
         (meta != null && meta.artist.isNotEmpty) ? meta.artist : task.author;
-    final b = StringBuffer('-metadata title="${_q(task.title)}"');
-    if (artist.isNotEmpty) b.write(' -metadata artist="${_q(artist)}"');
+    final args = <String>[];
+    void add(String key, String value) {
+      if (value.isNotEmpty) args.addAll(['-metadata', '$key=$value']);
+    }
+
+    add('title', task.title);
+    add('artist', artist);
     if (meta != null) {
       if (meta.album.isNotEmpty) {
-        b.write(' -metadata album="${_q(meta.album)}"'
-            ' -metadata album_artist="${_q(artist)}"');
+        add('album', meta.album);
+        add('album_artist', artist);
       }
-      if (meta.genre.isNotEmpty) b.write(' -metadata genre="${_q(meta.genre)}"');
-      if (meta.year != null) b.write(' -metadata date="${meta.year}"');
-      if (meta.trackNumber != null) {
-        b.write(' -metadata track="${meta.trackNumber}"');
-      }
+      add('genre', meta.genre);
+      if (meta.year != null) add('date', '${meta.year}');
+      if (meta.trackNumber != null) add('track', '${meta.trackNumber}');
     }
-    return b.toString();
+    if (lyrics?.plain != null) add('lyrics', lyrics!.plain!);
+    return args;
   }
 
-  String _q(String s) => s.replaceAll('"', '');
+  /// Synced lyrics go in a same-named .lrc beside the song — the convention
+  /// Android music players (Poweramp, Musicolet) look for.
+  Future<void> _writeLrc(DownloadTask task, Lyrics? lyrics) async {
+    final synced = lyrics?.synced;
+    if (synced == null || synced.isEmpty) return;
+    try {
+      await File(_lrcPath(task.filePath)).writeAsString(synced);
+    } catch (e) {
+      debugPrint('[EasyTube] .lrc write failed: $e');
+    }
+  }
+
+  String _lrcPath(String filePath) {
+    final dot = filePath.lastIndexOf('.');
+    return '${dot > 0 ? filePath.substring(0, dot) : filePath}.lrc';
+  }
 
   /// Downloads the video thumbnail into the app-private thumbs folder, named by
   /// the file's base name so the library can find it. Returns its path (also
@@ -480,6 +548,7 @@ class DownloaderNotifier extends Notifier<List<DownloadTask>> {
     final task = _byId(id);
     if (task != null) {
       _deleteFile(task.filePath);
+      _deleteFile(_lrcPath(task.filePath));
       _cleanupTemps(task);
     }
     _jobs.remove(id);

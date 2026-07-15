@@ -24,6 +24,10 @@ class YoutubeIds {
     return null;
   }
 
+  /// True for YouTube Music links (`music.youtube.com/...`).
+  static bool isMusicUrl(String url) =>
+      Uri.tryParse(url)?.host.contains('music.youtube.com') ?? false;
+
   /// A real, downloadable playlist id. Excludes auto-generated radio mixes
   /// (`RD...`), which aren't enumerable.
   static String? playlistId(String url) {

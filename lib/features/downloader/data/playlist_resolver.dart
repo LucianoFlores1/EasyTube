@@ -2,9 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 
 class PlaylistVideo {
-  const PlaylistVideo(this.id, this.title);
+  const PlaylistVideo(this.id, this.title, this.author);
   final String id;
   final String title;
+
+  /// Channel/artist row. Empty when the response doesn't carry one.
+  final String author;
 }
 
 /// Enumerates a playlist's videos via YouTube's InnerTube `browse` endpoint.
@@ -52,9 +55,14 @@ class PlaylistResolver {
     if (node is Map) {
       final lm = node['lockupViewModel'];
       if (lm is Map && lm['contentId'] is String) {
+        // Metadata rows come in order: [0] title, [1] channel/artist, then
+        // view count and age. Validated by `tool/test_dl.dart`.
+        final rows = <String>[];
+        _contents(lm['metadata'], rows);
         out.add(PlaylistVideo(
           lm['contentId'] as String,
-          _firstString(lm['metadata'], 'content') ?? '',
+          rows.isNotEmpty ? rows.first : '',
+          rows.length > 1 && !_isStat(rows[1]) ? rows[1] : '',
         ));
       }
       for (final v in node.values) {
@@ -67,19 +75,23 @@ class PlaylistResolver {
     }
   }
 
-  static String? _firstString(dynamic node, String key) {
+  static final _stat = RegExp(
+    r'\b(views|vistas|visualizaciones|reproducciones)\b',
+    caseSensitive: false,
+  );
+
+  static bool _isStat(String s) => _stat.hasMatch(s);
+
+  static void _contents(dynamic node, List<String> out) {
     if (node is Map) {
-      if (node[key] is String) return node[key] as String;
+      if (node['content'] is String) out.add(node['content'] as String);
       for (final v in node.values) {
-        final r = _firstString(v, key);
-        if (r != null) return r;
+        _contents(v, out);
       }
     } else if (node is List) {
       for (final v in node) {
-        final r = _firstString(v, key);
-        if (r != null) return r;
+        _contents(v, out);
       }
     }
-    return null;
   }
 }
